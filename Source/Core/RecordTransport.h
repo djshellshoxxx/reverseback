@@ -81,8 +81,10 @@ private:
     State state_{State::Ready};
     RecordSettings settings_{};
     AudioBuffer retainedTake_;
+    AudioBuffer previousRetainedTake_;
     AudioBuffer capture_;
     AudioBuffer preRoll_;
+    bool previousRetainedArchived_{false};
 
     std::uint64_t targetCaptureFrames_{0};
     std::uint64_t capturedFrames_{0};
