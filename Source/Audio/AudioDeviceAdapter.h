@@ -58,7 +58,17 @@ public:
     void stop();
 
     void setFileClip(std::shared_ptr<const AudioClip> clip);
-    void playFile(Direction direction, double speed, LoopPattern loop, double fadeMs);
+    void playFile(Selection selection, Direction direction, double speed, LoopPattern loop, double fadeMs);
+    void playClip(std::shared_ptr<const AudioClip> clip,
+                  Selection selection,
+                  Mode ownerMode,
+                  Direction direction,
+                  double speed,
+                  LoopPattern loop,
+                  double fadeMs);
+    void setPreviewDirection(Direction direction);
+    void setPreviewSpeed(double speed);
+    void setPreviewLoop(LoopPattern loop);
     [[nodiscard]] std::shared_ptr<const AudioClip> fileClip() const noexcept { return fileClip_; }
 
     [[nodiscard]] std::shared_ptr<const AudioClip> copyRetainedTake();
@@ -93,6 +103,7 @@ private:
     LiveReverseTransport live_;
     ClipPlayer filePlayer_;
     std::shared_ptr<const AudioClip> fileClip_;
+    std::shared_ptr<const AudioClip> previewClip_;
 
     AudioBuffer inputScratch_;
     AudioBuffer wetScratch_;
