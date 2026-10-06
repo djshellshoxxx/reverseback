@@ -48,6 +48,17 @@ void RecordTransport::prepare(const RecordSettings& settings)
 
     preRoll_.assign(activeChannels_, std::vector<float>(
         static_cast<std::size_t>(preRollFrames_), 0.0f));
+
+    if (capture_.size() != activeChannels_)
+        capture_.assign(activeChannels_, {});
+    if (!retainedTake_.empty() && retainedTake_.size() != activeChannels_)
+        retainedTake_.clear();
+
+    for (auto& channel : capture_)
+        channel.reserve(static_cast<std::size_t>(targetCaptureFrames_));
+    for (auto& channel : retainedTake_)
+        channel.reserve(static_cast<std::size_t>(targetCaptureFrames_));
+
     prepared_ = true;
 }
 
@@ -160,8 +171,27 @@ AudioBuffer RecordTransport::processBlock(const AudioBuffer& input,
     const std::size_t outputChannels =
         activeChannels_ != 0 ? activeChannels_
                              : (!retainedTake_.empty() ? retainedTake_.size() : input.size());
-
     AudioBuffer output(outputChannels, std::vector<float>(frameCount, 0.0f));
+    processBlockInto(input, frameCount, output);
+    return output;
+}
+
+void RecordTransport::processBlockInto(const AudioBuffer& input,
+                                       std::uint32_t frameCount,
+                                       AudioBuffer& output)
+{
+    const std::size_t outputChannels =
+        activeChannels_ != 0 ? activeChannels_
+                             : (!retainedTake_.empty() ? retainedTake_.size() : input.size());
+
+    if (output.size() < outputChannels)
+        throw std::invalid_argument("Output has fewer channels than active transport");
+    for (std::size_t channel = 0; channel < outputChannels; ++channel)
+    {
+        if (output[channel].size() < frameCount)
+            throw std::invalid_argument("Output channel is shorter than frameCount");
+        std::fill_n(output[channel].begin(), frameCount, 0.0f);
+    }
 
     const bool needsInput = state_ == State::Recording || state_ == State::Armed;
     if (needsInput)
@@ -258,7 +288,6 @@ AudioBuffer RecordTransport::processBlock(const AudioBuffer& input,
         }
     }
 
-    return output;
 }
 
 RecordTransport::State RecordTransport::state() const noexcept
@@ -278,9 +307,15 @@ const AudioBuffer& RecordTransport::retainedTake() const noexcept
 
 void RecordTransport::beginCapture()
 {
-    capture_.assign(activeChannels_, {});
+    if (capture_.size() != activeChannels_)
+        capture_.assign(activeChannels_, {});
+
     for (auto& channel : capture_)
-        channel.reserve(static_cast<std::size_t>(targetCaptureFrames_));
+    {
+        channel.clear();
+        if (channel.capacity() < static_cast<std::size_t>(targetCaptureFrames_))
+            channel.reserve(static_cast<std::size_t>(targetCaptureFrames_));
+    }
 
     capturedFrames_ = 0;
     waitedFrames_ = 0;
@@ -300,8 +335,7 @@ void RecordTransport::beginArmed()
 
 void RecordTransport::promoteCompletedCapture()
 {
-    retainedTake_ = std::move(capture_);
-    capture_.clear();
+    retainedTake_.swap(capture_);
     capturedFrames_ = static_cast<std::uint64_t>(retainedTake_.front().size());
     waitedFrames_ = 0;
 }
