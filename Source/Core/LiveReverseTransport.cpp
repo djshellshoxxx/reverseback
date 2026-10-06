@@ -23,6 +23,8 @@ void LiveReverseTransport::start(std::size_t channels,
     readIndex_ = 0;
     writeIndex_ = 0;
     queued_ = 0;
+    freezeRequested_ = false;
+    frozenChunk_.clear();
 
     capture_.assign(channels_, std::vector<float>(static_cast<std::size_t>(chunkFrames_), 0.0f));
 
@@ -48,6 +50,27 @@ void LiveReverseTransport::stop() noexcept
     queued_ = 0;
     readIndex_ = 0;
     writeIndex_ = 0;
+    freezeRequested_ = false;
+}
+
+void LiveReverseTransport::requestFreeze() noexcept
+{
+    if (state_ == State::Filling || state_ == State::Running)
+        freezeRequested_ = true;
+}
+
+void LiveReverseTransport::resume()
+{
+    if (state_ != State::Frozen)
+        return;
+
+    captureOffset_ = 0;
+    playbackOffset_ = 0;
+    queued_ = 0;
+    readIndex_ = 0;
+    writeIndex_ = 0;
+    freezeRequested_ = false;
+    state_ = State::Filling;
 }
 
 AudioBuffer LiveReverseTransport::processBlock(const AudioBuffer& input,
@@ -62,23 +85,47 @@ AudioBuffer LiveReverseTransport::processBlock(const AudioBuffer& input,
         return output;
     }
 
-    if (input.size() < channels_)
-        throw std::invalid_argument("Input has fewer channels than active Live Reverse");
-
-    for (std::size_t channel = 0; channel < channels_; ++channel)
+    if (state_ != State::Frozen)
     {
-        if (input[channel].size() < frameCount)
-            throw std::invalid_argument("Input channel is shorter than frameCount");
+        if (input.size() < channels_)
+            throw std::invalid_argument("Input has fewer channels than active Live Reverse");
+
+        for (std::size_t channel = 0; channel < channels_; ++channel)
+        {
+            if (input[channel].size() < frameCount)
+                throw std::invalid_argument("Input channel is shorter than frameCount");
+        }
     }
 
     for (std::uint32_t frame = 0; frame < frameCount; ++frame)
     {
+        if (state_ == State::Frozen)
+        {
+            if (!frozenChunk_.empty())
+            {
+                const auto sourceIndex = chunkFrames_ - 1 - playbackOffset_;
+                for (std::size_t channel = 0; channel < channels_; ++channel)
+                    output[channel][frame] = frozenChunk_[channel][static_cast<std::size_t>(sourceIndex)];
+
+                playbackOffset_ = (playbackOffset_ + 1) % chunkFrames_;
+            }
+
+            ++absoluteFrame_;
+            continue;
+        }
+
         for (std::size_t channel = 0; channel < channels_; ++channel)
             capture_[channel][static_cast<std::size_t>(captureOffset_)] = input[channel][frame];
 
         ++captureOffset_;
         if (captureOffset_ == chunkFrames_)
             completeChunk();
+
+        if (state_ == State::Frozen)
+        {
+            ++absoluteFrame_;
+            continue;
+        }
 
         if (queued_ > 0)
         {
@@ -123,8 +170,24 @@ std::size_t LiveReverseTransport::capacity() const noexcept
     return slots_.size();
 }
 
+bool LiveReverseTransport::hasFrozenChunk() const noexcept
+{
+    return !frozenChunk_.empty() && !frozenChunk_.front().empty();
+}
+
+const AudioBuffer& LiveReverseTransport::frozenChunk() const noexcept
+{
+    return frozenChunk_;
+}
+
 void LiveReverseTransport::completeChunk()
 {
+    if (freezeRequested_)
+    {
+        adoptFrozenChunk();
+        return;
+    }
+
     if (queued_ == slots_.size())
         throw std::runtime_error("Audio processing fell behind");
 
@@ -137,6 +200,18 @@ void LiveReverseTransport::completeChunk()
     writeIndex_ = (writeIndex_ + 1) % slots_.size();
     ++queued_;
     captureOffset_ = 0;
+}
+
+void LiveReverseTransport::adoptFrozenChunk()
+{
+    frozenChunk_ = capture_;
+    captureOffset_ = 0;
+    queued_ = 0;
+    readIndex_ = 0;
+    writeIndex_ = 0;
+    playbackOffset_ = 0;
+    freezeRequested_ = false;
+    state_ = State::Frozen;
 }
 
 LiveReverseTransport::Slot& LiveReverseTransport::writeSlot()
