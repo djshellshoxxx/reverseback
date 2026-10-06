@@ -63,3 +63,56 @@ if(BUILD_TESTING)
     target_link_libraries(reverseback_settings_tests PRIVATE reverseback_core)
     add_test(NAME reverseback_settings_tests COMMAND reverseback_settings_tests)
 endif()
+
+
+option(REVERSEBACK_BUILD_APP "Build the JUCE standalone application" OFF)
+
+if(REVERSEBACK_BUILD_APP)
+    include(FetchContent)
+
+    FetchContent_Declare(
+        JUCE
+        GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
+        GIT_TAG 9.0.3
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(JUCE)
+
+    juce_add_gui_app(ReverseBack
+        PRODUCT_NAME "ReverseBack"
+        COMPANY_NAME "Circuit Drift Labs"
+        VERSION ${PROJECT_VERSION}
+    )
+
+    target_sources(ReverseBack PRIVATE
+        Source/Main.cpp
+        Source/Audio/AudioDeviceAdapter.cpp
+        Source/IO/FileService.cpp
+        Source/IO/ExportService.cpp
+        Source/UI/MainComponent.cpp
+        Source/UI/WaveformView.cpp
+        Source/UI/AudioSettingsPanel.cpp
+    )
+
+    target_include_directories(ReverseBack PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/Core
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/Audio
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/IO
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/UI
+    )
+
+    target_compile_definitions(ReverseBack PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+    )
+
+    target_link_libraries(ReverseBack PRIVATE
+        reverseback_core
+        juce::juce_audio_utils
+        juce::juce_audio_formats
+        juce::juce_audio_devices
+        juce::juce_gui_extra
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags
+    )
+endif()
