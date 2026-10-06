@@ -48,4 +48,10 @@ if(BUILD_TESTING)
     )
     target_link_libraries(reverseback_realtime_tests PRIVATE reverseback_core)
     add_test(NAME reverseback_realtime_tests COMMAND reverseback_realtime_tests)
+
+    add_executable(reverseback_record_advanced_tests
+        Tests/Core/test_record_advanced.cpp
+    )
+    target_link_libraries(reverseback_record_advanced_tests PRIVATE reverseback_core)
+    add_test(NAME reverseback_record_advanced_tests COMMAND reverseback_record_advanced_tests)
 endif()
