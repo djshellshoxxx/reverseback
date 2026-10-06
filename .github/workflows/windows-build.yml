@@ -1,0 +1,33 @@
+name: Windows Standalone
+
+concurrency:
+  group: reverseback-windows-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  windows-app:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DREVERSEBACK_BUILD_APP=ON -DBUILD_TESTING=ON
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Upload standalone
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReverseBack-Windows
+          path: build/ReverseBack_artefacts/Release/ReverseBack.exe
+          if-no-files-found: error
