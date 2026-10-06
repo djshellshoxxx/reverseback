@@ -188,6 +188,13 @@ AppSettings SettingsStore::sanitize(AppSettings s)
     s.outputVolumeDb = std::clamp(s.outputVolumeDb, -60.0, 0.0);
     s.speed = std::clamp(s.speed, 0.5, 2.0);
     s.edgeFadeMs = std::clamp(s.edgeFadeMs, 0.0, 10.0);
+    s.mode = std::clamp(s.mode, 0, 2);
+    s.direction = std::clamp(s.direction, 0, 1);
+    s.loopPattern = std::clamp(s.loopPattern, 0, 2);
+    s.countdownSeconds = std::clamp(s.countdownSeconds, 0.0, 5.0);
+    s.triggerThresholdDb = std::clamp(s.triggerThresholdDb, -65.0, -15.0);
+    s.repeatGapSeconds = std::clamp(s.repeatGapSeconds, 0.0, 2.0);
+    s.exportBitDepth = s.exportBitDepth == 24 ? 24 : 32;
     return s;
 }
 
@@ -203,6 +210,17 @@ std::string SettingsStore::encodeSettings(const AppSettings& s, const std::strin
         << prefix << "outputVolumeDb=" << s.outputVolumeDb << '\n'
         << prefix << "speed=" << s.speed << '\n'
         << prefix << "edgeFadeMs=" << s.edgeFadeMs << '\n'
+        << prefix << "mode=" << s.mode << '\n'
+        << prefix << "direction=" << s.direction << '\n'
+        << prefix << "loopPattern=" << s.loopPattern << '\n'
+        << prefix << "countdownSeconds=" << s.countdownSeconds << '\n'
+        << prefix << "autoStart=" << (s.autoStart ? 1 : 0) << '\n'
+        << prefix << "triggerThresholdDb=" << s.triggerThresholdDb << '\n'
+        << prefix << "repeatSession=" << (s.repeatSession ? 1 : 0) << '\n'
+        << prefix << "repeatGapSeconds=" << s.repeatGapSeconds << '\n'
+        << prefix << "exactSamples=" << (s.exactSamples ? 1 : 0) << '\n'
+        << prefix << "exportBitDepth=" << s.exportBitDepth << '\n'
+        << prefix << "normalizeExport=" << (s.normalizeExport ? 1 : 0) << '\n'
         << prefix << "inputMonitor=" << (s.inputMonitor ? 1 : 0) << '\n'
         << prefix << "shortcutsEnabled=" << (s.shortcutsEnabled ? 1 : 0) << '\n'
         << prefix << "lastFolder=" << escape(s.lastFolder) << '\n'
@@ -224,6 +242,17 @@ void SettingsStore::applyValue(AppSettings& s, const std::string& key, const std
         else if (key == "outputVolumeDb") s.outputVolumeDb = std::stod(value);
         else if (key == "speed") s.speed = std::stod(value);
         else if (key == "edgeFadeMs") s.edgeFadeMs = std::stod(value);
+        else if (key == "mode") s.mode = std::stoi(value);
+        else if (key == "direction") s.direction = std::stoi(value);
+        else if (key == "loopPattern") s.loopPattern = std::stoi(value);
+        else if (key == "countdownSeconds") s.countdownSeconds = std::stod(value);
+        else if (key == "autoStart") s.autoStart = parseBool(value);
+        else if (key == "triggerThresholdDb") s.triggerThresholdDb = std::stod(value);
+        else if (key == "repeatSession") s.repeatSession = parseBool(value);
+        else if (key == "repeatGapSeconds") s.repeatGapSeconds = std::stod(value);
+        else if (key == "exactSamples") s.exactSamples = parseBool(value);
+        else if (key == "exportBitDepth") s.exportBitDepth = std::stoi(value);
+        else if (key == "normalizeExport") s.normalizeExport = parseBool(value);
         else if (key == "inputMonitor") s.inputMonitor = parseBool(value);
         else if (key == "shortcutsEnabled") s.shortcutsEnabled = parseBool(value);
         else if (key == "lastFolder") s.lastFolder = value;
