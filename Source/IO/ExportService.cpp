@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <random>
+#include <utility>
 
 namespace reverseback
 {
@@ -233,7 +234,7 @@ ExportService::Result ExportService::writeWav(const AudioClip& clip,
                              ? juce::AudioFormatWriterOptions::SampleFormat::floatingPoint
                              : juce::AudioFormatWriterOptions::SampleFormat::integral);
 
-    auto writer = wav.createWriterFor(stream, options);
+    auto writer = wav.createWriterFor(std::move(stream), options);
     if (writer == nullptr)
     {
         result.error = Error::CreateFailed;
