@@ -473,7 +473,7 @@ void AudioDeviceAdapter::suspendCallback(const std::function<void()>& fn)
 
 double AudioDeviceAdapter::currentSampleRate() const noexcept
 {
-    if (const auto* device = deviceManager_.getCurrentAudioDevice())
+    if (auto* device = deviceManager_.getCurrentAudioDevice())
         return device->getCurrentSampleRate();
     return sampleRate_.load() > 0.0 ? sampleRate_.load() : 48000.0;
 }
