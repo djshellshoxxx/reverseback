@@ -11,6 +11,8 @@ add_library(reverseback_core
     Source/Core/FrameScheduler.cpp
     Source/Core/RecordTransport.cpp
     Source/Core/LiveReverseTransport.cpp
+    Source/Core/ClipPlayer.cpp
+    Source/Core/SignalTools.cpp
 )
 
 target_include_directories(reverseback_core
@@ -33,4 +35,10 @@ if(BUILD_TESTING)
 
     target_link_libraries(reverseback_core_tests PRIVATE reverseback_core)
     add_test(NAME reverseback_core_tests COMMAND reverseback_core_tests)
+
+    add_executable(reverseback_clip_feature_tests
+        Tests/Core/test_clip_features.cpp
+    )
+    target_link_libraries(reverseback_clip_feature_tests PRIVATE reverseback_core)
+    add_test(NAME reverseback_clip_feature_tests COMMAND reverseback_clip_feature_tests)
 endif()
