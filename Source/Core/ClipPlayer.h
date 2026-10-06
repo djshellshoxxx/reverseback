@@ -19,7 +19,12 @@ public:
 
     [[nodiscard]] std::size_t process(AudioBuffer& output, std::size_t frames);
     void stop() noexcept;
+    void setDirectionAtCurrentPosition(Direction direction) noexcept;
+    void setSpeedAtCurrentPosition(double speed);
 
+    [[nodiscard]] Direction activeDirection() const noexcept { return activeDirection_; }
+    [[nodiscard]] double speed() const noexcept { return speed_; }
+    [[nodiscard]] Frame currentSourceFrame() const noexcept;
     [[nodiscard]] bool playing() const noexcept { return playing_; }
     [[nodiscard]] Frame renderedFrames() const noexcept { return renderedFrames_; }
     [[nodiscard]] Frame passLengthFrames() const noexcept;
@@ -39,6 +44,8 @@ private:
     Frame fadeFrames_{0};
     Frame renderedFrames_{0};
     Frame frameInPass_{0};
+    Frame transitionFrames_{0};
+    Frame transitionRemaining_{0};
     bool playing_{false};
 };
 }
