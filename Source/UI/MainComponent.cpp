@@ -83,7 +83,6 @@ MainComponent::MainComponent()
     refreshPresetList();
 
     setSize(960, 700);
-    setResizeLimits(820, 620, 1800, 1200);
     startTimerHz(20);
 }
 
@@ -226,6 +225,12 @@ void MainComponent::configureControls()
         countdown_.setSelectedId(1);
 
     autoStart_.setToggleState(settings_.autoStart, juce::dontSendNotification);
+    autoStart_.onClick = [this]
+    {
+        triggerThreshold_.setEnabled(
+            mode_ == AudioDeviceAdapter::Mode::Record &&
+            autoStart_.getToggleState());
+    };
 
     setupSlider(triggerThreshold_, -65.0, -15.0, 1.0,
                 settings_.triggerThresholdDb, " dBFS");
@@ -917,7 +922,8 @@ void MainComponent::saveCurrentAsset()
     auto safe = juce::Component::SafePointer<MainComponent>(this);
     chooser_->launchAsync(
         juce::FileBrowserComponent::saveMode |
-        juce::FileBrowserComponent::canSelectFiles,
+        juce::FileBrowserComponent::canSelectFiles |
+        juce::FileBrowserComponent::warnAboutOverwriting,
         [safe](const juce::FileChooser& chooser)
         {
             if (safe == nullptr)
@@ -929,18 +935,7 @@ void MainComponent::saveCurrentAsset()
             if (!file.hasFileExtension("wav"))
                 file = file.withFileExtension("wav");
 
-            bool overwrite = false;
-            if (file.existsAsFile())
-            {
-                overwrite = juce::AlertWindow::showOkCancelBox(
-                    juce::AlertWindow::WarningIcon,
-                    "Replace existing file?",
-                    file.getFullPathName(),
-                    "Replace", "Cancel", safe);
-                if (!overwrite)
-                    return;
-            }
-
+            const bool overwrite = file.existsAsFile();
             safe->exportAsync(file, overwrite);
         });
 }
