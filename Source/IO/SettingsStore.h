@@ -29,6 +29,7 @@ struct AppSettings
     double repeatGapSeconds{0.5};
     bool exactSamples{false};
     int exportBitDepth{32};
+    int exportSampleRate{0};
     bool normalizeExport{false};
     bool inputMonitor{false};
     bool shortcutsEnabled{true};
