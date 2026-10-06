@@ -170,19 +170,67 @@ void AudioDeviceAdapter::setFileClip(std::shared_ptr<const AudioClip> clip)
     });
 }
 
-void AudioDeviceAdapter::playFile(Direction direction, double speed, LoopPattern loop, double fadeMs)
+void AudioDeviceAdapter::playFile(Selection selection,
+                                  Direction direction,
+                                  double speed,
+                                  LoopPattern loop,
+                                  double fadeMs)
+{
+    playClip(fileClip_, selection, Mode::File, direction, speed, loop, fadeMs);
+}
+
+void AudioDeviceAdapter::playClip(std::shared_ptr<const AudioClip> clip,
+                                  Selection selection,
+                                  Mode ownerMode,
+                                  Direction direction,
+                                  double speed,
+                                  LoopPattern loop,
+                                  double fadeMs)
 {
     suspendCallback([&]
     {
-        if (fileClip_ == nullptr || fileClip_->frameCount() == 0)
+        if (clip == nullptr || clip->frameCount() == 0)
             return;
 
-        mode_ = Mode::File;
-        record_.stop();
-        live_.stop();
+        mode_ = ownerMode;
+        if (ownerMode != Mode::Record)
+            record_.stop();
+        if (ownerMode != Mode::Live)
+            live_.stop();
+
+        previewClip_ = std::move(clip);
         const auto fade = static_cast<Frame>(std::llround(
-            fileClip_->sampleRate() * std::clamp(fadeMs, 0.0, 10.0) / 1000.0));
-        filePlayer_.prepare(*fileClip_, {0, fileClip_->frameCount()}, direction, speed, loop, fade);
+            previewClip_->sampleRate() * std::clamp(fadeMs, 0.0, 10.0) / 1000.0));
+        filePlayer_.prepare(*previewClip_, selection, direction, speed, loop, fade);
+        publishState();
+    });
+}
+
+void AudioDeviceAdapter::setPreviewDirection(Direction direction)
+{
+    suspendCallback([&]
+    {
+        if (filePlayer_.playing())
+            filePlayer_.setDirectionAtCurrentPosition(direction);
+        publishState();
+    });
+}
+
+void AudioDeviceAdapter::setPreviewSpeed(double speed)
+{
+    suspendCallback([&]
+    {
+        if (filePlayer_.playing())
+            filePlayer_.setSpeedAtCurrentPosition(speed);
+        publishState();
+    });
+}
+
+void AudioDeviceAdapter::setPreviewLoop(LoopPattern loop)
+{
+    suspendCallback([&]
+    {
+        filePlayer_.setLoopPattern(loop);
         publishState();
     });
 }
@@ -334,20 +382,25 @@ void AudioDeviceAdapter::audioDeviceIOCallbackWithContext(
     for (auto& channel : wetScratch_)
         std::fill_n(channel.begin(), numSamples, 0.0f);
 
-    switch (mode_)
+    if (filePlayer_.playing())
     {
-        case Mode::Record:
-            record_.processBlockInto(inputScratch_, static_cast<std::uint32_t>(numSamples), wetScratch_);
-            break;
+        filePlayer_.process(wetScratch_, static_cast<std::size_t>(numSamples));
+    }
+    else
+    {
+        switch (mode_)
+        {
+            case Mode::Record:
+                record_.processBlockInto(inputScratch_, static_cast<std::uint32_t>(numSamples), wetScratch_);
+                break;
 
-        case Mode::Live:
-            live_.processBlockInto(inputScratch_, static_cast<std::uint32_t>(numSamples), wetScratch_);
-            break;
+            case Mode::Live:
+                live_.processBlockInto(inputScratch_, static_cast<std::uint32_t>(numSamples), wetScratch_);
+                break;
 
-        case Mode::File:
-            if (filePlayer_.playing())
-                filePlayer_.process(wetScratch_, static_cast<std::size_t>(numSamples));
-            break;
+            case Mode::File:
+                break;
+        }
     }
 
     const bool monitor =
@@ -438,11 +491,18 @@ void AudioDeviceAdapter::publishState() noexcept
     publishedMode_.store(static_cast<int>(mode_));
 
     int state = 0;
-    switch (mode_)
+    if (filePlayer_.playing())
     {
-        case Mode::Record: state = static_cast<int>(record_.state()); break;
-        case Mode::Live: state = static_cast<int>(live_.state()); break;
-        case Mode::File: state = filePlayer_.playing() ? 1 : 0; break;
+        state = 100;
+    }
+    else
+    {
+        switch (mode_)
+        {
+            case Mode::Record: state = static_cast<int>(record_.state()); break;
+            case Mode::Live: state = static_cast<int>(live_.state()); break;
+            case Mode::File: state = 0; break;
+        }
     }
 
     publishedState_.store(state);
