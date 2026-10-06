@@ -10,6 +10,7 @@ add_library(reverseback_core
     Source/Core/ReverseBuffer.cpp
     Source/Core/FrameScheduler.cpp
     Source/Core/RecordTransport.cpp
+    Source/Core/LiveReverseTransport.cpp
 )
 
 target_include_directories(reverseback_core
