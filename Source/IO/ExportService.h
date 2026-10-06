@@ -26,6 +26,7 @@ public:
     {
         None,
         InvalidSelection,
+        InvalidSettings,
         DestinationExists,
         Cancelled,
         WouldClipPcm,
