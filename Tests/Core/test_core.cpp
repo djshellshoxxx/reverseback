@@ -167,6 +167,17 @@ static void testLiveQueueCapacityIsBounded()
     assert(transport.capacity() == 14);
 }
 
+static void testLiveProcessIntoSilencesReadyOutput()
+{
+    LiveReverseTransport transport;
+    AudioBuffer output{{9.0f, 9.0f, 9.0f}};
+
+    transport.processBlockInto(AudioBuffer{{1.0f, 2.0f, 3.0f}}, 3, output);
+
+    assert((output[0] == std::vector<float>{0.0f, 0.0f, 0.0f}));
+    assert(transport.absoluteFrame() == 3);
+}
+
 int main()
 {
     testExactMonoReverse();
@@ -180,6 +191,7 @@ int main()
     testLiveChunksReverseIndependentlyAndStayChronological();
     testLiveFirstOutputFrameMatchesChunkPlusDelay();
     testLiveQueueCapacityIsBounded();
+    testLiveProcessIntoSilencesReadyOutput();
     std::cout << "ReverseBack core tests passed\n";
     return 0;
 }

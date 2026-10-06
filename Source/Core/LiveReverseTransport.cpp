@@ -100,7 +100,7 @@ void LiveReverseTransport::processBlockInto(const AudioBuffer& input,
     if (state_ == State::Ready)
     {
         absoluteFrame_ += frameCount;
-        return output;
+        return;
     }
 
     if (state_ != State::Frozen)

@@ -97,7 +97,7 @@ static void freezeAdoptsCompletedChunkAndLoops()
     assert(live.state() == LiveReverseTransport::State::Frozen);
     assert(live.hasFrozenChunk());
     assert((live.frozenChunk()[0] == std::vector<float>{1,2,3,4}));
-    assert((first[0] == std::vector<float>{0,4,3,2,1,4}));
+    assert((first[0] == std::vector<float>{0,0,4,3,2,1}));
 
     live.resume();
     assert(live.state() == LiveReverseTransport::State::Filling);

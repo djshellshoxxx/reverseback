@@ -102,17 +102,17 @@ static void repeatSessionUsesReadyGapWithoutConcurrentCapture()
     RecordTransport::RecordSettings s;
     s.sampleRate = 1000.0;
     s.channels = 1;
-    s.captureSeconds = 0.05;
+    s.captureSeconds = 0.25;
     s.waitSeconds = 0.0;
     s.repeatSession = true;
     s.readyGapSeconds = 0.02;
     t.prepare(s);
     t.startPrepared();
 
-    auto out = t.processBlock(AudioBuffer{std::vector<float>(120,1.0f)},120);
+    auto out = t.processBlock(AudioBuffer{std::vector<float>(520,1.0f)},520);
     (void)out;
-    assert(t.state() == RecordTransport::State::Recording ||
-           t.state() == RecordTransport::State::ReadyGap);
+    assert(t.state() == RecordTransport::State::Recording);
+    assert(t.capturedFrames() == 0);
 }
 
 int main()

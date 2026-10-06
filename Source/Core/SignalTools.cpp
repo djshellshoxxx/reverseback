@@ -70,3 +70,4 @@ Selection findNonSilentSelection(const AudioClip& clip,
         std::min<Frame>(total, last + padding)
     };
 }
+}
