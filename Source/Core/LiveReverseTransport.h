@@ -15,7 +15,8 @@ public:
     {
         Ready,
         Filling,
-        Running
+        Running,
+        Frozen
     };
 
     void start(std::size_t channels,
@@ -23,6 +24,8 @@ public:
                std::uint64_t delayFrames);
 
     void stop() noexcept;
+    void requestFreeze() noexcept;
+    void resume();
 
     [[nodiscard]] AudioBuffer processBlock(const AudioBuffer& input,
                                            std::uint32_t frameCount);
@@ -30,6 +33,8 @@ public:
     [[nodiscard]] State state() const noexcept;
     [[nodiscard]] std::uint64_t absoluteFrame() const noexcept;
     [[nodiscard]] std::size_t capacity() const noexcept;
+    [[nodiscard]] bool hasFrozenChunk() const noexcept;
+    [[nodiscard]] const AudioBuffer& frozenChunk() const noexcept;
 
 private:
     struct Slot
@@ -39,6 +44,7 @@ private:
     };
 
     void completeChunk();
+    void adoptFrozenChunk();
     [[nodiscard]] Slot& writeSlot();
     [[nodiscard]] Slot& readSlot();
 
@@ -51,9 +57,11 @@ private:
     std::uint64_t playbackOffset_{0};
 
     AudioBuffer capture_;
+    AudioBuffer frozenChunk_;
     std::vector<Slot> slots_;
     std::size_t readIndex_{0};
     std::size_t writeIndex_{0};
     std::size_t queued_{0};
+    bool freezeRequested_{false};
 };
 }
