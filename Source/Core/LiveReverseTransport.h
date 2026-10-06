@@ -29,6 +29,9 @@ public:
 
     [[nodiscard]] AudioBuffer processBlock(const AudioBuffer& input,
                                            std::uint32_t frameCount);
+    void processBlockInto(const AudioBuffer& input,
+                          std::uint32_t frameCount,
+                          AudioBuffer& output);
 
     [[nodiscard]] State state() const noexcept;
     [[nodiscard]] std::uint64_t absoluteFrame() const noexcept;
