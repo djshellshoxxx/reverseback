@@ -19,6 +19,17 @@ struct AppSettings
     double outputVolumeDb{-12.0};
     double speed{1.0};
     double edgeFadeMs{3.0};
+    int mode{0};
+    int direction{1};
+    int loopPattern{0};
+    double countdownSeconds{0.0};
+    bool autoStart{false};
+    double triggerThresholdDb{-45.0};
+    bool repeatSession{false};
+    double repeatGapSeconds{0.5};
+    bool exactSamples{false};
+    int exportBitDepth{32};
+    bool normalizeExport{false};
     bool inputMonitor{false};
     bool shortcutsEnabled{true};
     std::string lastFolder;
