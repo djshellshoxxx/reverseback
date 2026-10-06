@@ -17,7 +17,7 @@ FileService::FileService()
 }
 
 FileService::Result FileService::load(const juce::File& file,
-                                      const std::atomic_bool* cancelled) const
+                                      const std::atomic_bool* cancelled)
 {
     Result result;
     result.file = file;
