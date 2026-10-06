@@ -58,6 +58,9 @@ public:
 
     [[nodiscard]] AudioBuffer processBlock(const AudioBuffer& input,
                                            std::uint32_t frameCount);
+    void processBlockInto(const AudioBuffer& input,
+                          std::uint32_t frameCount,
+                          AudioBuffer& output);
 
     [[nodiscard]] State state() const noexcept;
     [[nodiscard]] bool hasRetainedTake() const noexcept;
