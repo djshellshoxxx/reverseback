@@ -9,6 +9,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_library(reverseback_core
     Source/Core/ReverseBuffer.cpp
     Source/Core/FrameScheduler.cpp
+    Source/Core/RecordTransport.cpp
 )
 
 target_include_directories(reverseback_core
