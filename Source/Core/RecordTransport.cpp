@@ -51,11 +51,21 @@ void RecordTransport::prepare(const RecordSettings& settings)
 
     if (capture_.size() != activeChannels_)
         capture_.assign(activeChannels_, {});
-    if (!retainedTake_.empty() && retainedTake_.size() != activeChannels_)
-        retainedTake_.clear();
-
     for (auto& channel : capture_)
         channel.reserve(static_cast<std::size_t>(targetCaptureFrames_));
+
+    previousRetainedArchived_ = false;
+    if (hasRetainedTake() && retainedTake_.size() != activeChannels_)
+    {
+        previousRetainedTake_ = retainedTake_;
+        previousRetainedArchived_ = true;
+        retainedTake_.assign(activeChannels_, {});
+    }
+    else if (retainedTake_.empty())
+    {
+        retainedTake_.assign(activeChannels_, {});
+    }
+
     for (auto& channel : retainedTake_)
         channel.reserve(static_cast<std::size_t>(targetCaptureFrames_));
 
@@ -118,7 +128,15 @@ void RecordTransport::start(std::size_t channels,
 
 void RecordTransport::stop() noexcept
 {
-    capture_.clear();
+    if (previousRetainedArchived_)
+    {
+        retainedTake_.swap(previousRetainedTake_);
+        previousRetainedTake_.clear();
+        previousRetainedArchived_ = false;
+    }
+
+    for (auto& channel : capture_)
+        channel.clear();
     capturedFrames_ = 0;
     waitedFrames_ = 0;
     playbackOffset_ = 0;
@@ -335,7 +353,14 @@ void RecordTransport::beginArmed()
 
 void RecordTransport::promoteCompletedCapture()
 {
-    retainedTake_.swap(capture_);
+    if (retainedTake_.size() != activeChannels_)
+        retainedTake_.assign(activeChannels_, {});
+
+    for (std::size_t channel = 0; channel < activeChannels_; ++channel)
+        retainedTake_[channel].assign(capture_[channel].begin(), capture_[channel].end());
+
+    previousRetainedTake_.clear();
+    previousRetainedArchived_ = false;
     capturedFrames_ = static_cast<std::uint64_t>(retainedTake_.front().size());
     waitedFrames_ = 0;
 }
@@ -395,9 +420,14 @@ bool RecordTransport::triggerFrame(const AudioBuffer& input, std::uint32_t frame
 
 void RecordTransport::copyPreRollIntoCapture()
 {
-    capture_.assign(activeChannels_, {});
+    if (capture_.size() != activeChannels_)
+        capture_.assign(activeChannels_, {});
     for (auto& channel : capture_)
-        channel.reserve(static_cast<std::size_t>(targetCaptureFrames_));
+    {
+        channel.clear();
+        if (channel.capacity() < static_cast<std::size_t>(targetCaptureFrames_))
+            channel.reserve(static_cast<std::size_t>(targetCaptureFrames_));
+    }
 
     const auto count = std::min<std::uint64_t>(preRollCount_, targetCaptureFrames_);
     const auto start = (preRollWrite_ + preRollFrames_ - count) % preRollFrames_;
