@@ -1062,27 +1062,36 @@ void MainComponent::refreshPresetList()
 
 void MainComponent::saveUserPreset()
 {
-    juce::AlertWindow window(
+    auto* window = new juce::AlertWindow(
         "Save ReverseBack preset",
         "Name this session setup.",
         juce::AlertWindow::NoIcon);
-    window.addTextEditor("name", {}, "Preset name:");
-    window.addButton("Save", 1, juce::KeyPress(juce::KeyPress::returnKey));
-    window.addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    window->addTextEditor("name", {}, "Preset name:");
+    window->addButton("Save", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    window->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
 
-    if (window.runModalLoop() != 1)
-        return;
+    juce::Component::SafePointer<MainComponent> safeThis(this);
+    juce::Component::SafePointer<juce::AlertWindow> safeWindow(window);
+    window->enterModalState(
+        true,
+        juce::ModalCallbackFunction::create(
+            [safeThis, safeWindow](int result)
+            {
+                if (result != 1 || safeThis == nullptr || safeWindow == nullptr)
+                    return;
 
-    const auto name = window.getTextEditorContents("name").trim();
-    if (name.isEmpty())
-        return;
+                const auto name = safeWindow->getTextEditorContents("name").trim();
+                if (name.isEmpty())
+                    return;
 
-    persistSettings();
-    auto presetSettings = settings_;
-    presetSettings.inputMonitor = false;
-    settingsStore_.savePreset(name.toStdString(), presetSettings);
-    refreshPresetList();
-    preset_.setText(name, juce::dontSendNotification);
+                safeThis->persistSettings();
+                auto presetSettings = safeThis->settings_;
+                presetSettings.inputMonitor = false;
+                safeThis->settingsStore_.savePreset(name.toStdString(), presetSettings);
+                safeThis->refreshPresetList();
+                safeThis->preset_.setText(name, juce::dontSendNotification);
+            }),
+        true);
 }
 
 void MainComponent::applySurprise()
