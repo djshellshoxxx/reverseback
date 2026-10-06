@@ -21,6 +21,7 @@ public:
     void stop() noexcept;
     void setDirectionAtCurrentPosition(Direction direction) noexcept;
     void setSpeedAtCurrentPosition(double speed);
+    void setLoopPattern(LoopPattern loopPattern) noexcept { loopPattern_ = loopPattern; }
 
     [[nodiscard]] Direction activeDirection() const noexcept { return activeDirection_; }
     [[nodiscard]] double speed() const noexcept { return speed_; }
