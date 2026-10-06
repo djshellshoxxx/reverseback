@@ -39,7 +39,7 @@ public:
     FileService();
 
     [[nodiscard]] Result load(const juce::File& file,
-                              const std::atomic_bool* cancelled = nullptr) const;
+                              const std::atomic_bool* cancelled = nullptr);
 
 private:
     juce::AudioFormatManager formats_;
