@@ -6,7 +6,6 @@
 #include <cmath>
 #include <cstdint>
 #include <random>
-#include <utility>
 
 namespace reverseback
 {
@@ -216,13 +215,14 @@ ExportService::Result ExportService::writeWav(const AudioClip& clip,
         destination.getFileName() + ".reverseback.tmp");
     temp.deleteFile();
 
-    auto stream = temp.createOutputStream();
-    if (stream == nullptr)
+    auto fileStream = temp.createOutputStream();
+    if (fileStream == nullptr)
     {
         result.error = Error::CreateFailed;
         result.message = "Unable to create temporary export file.";
         return result;
     }
+    std::unique_ptr<juce::OutputStream> stream = std::move(fileStream);
 
     juce::WavAudioFormat wav;
     juce::AudioFormatWriterOptions options;
@@ -234,7 +234,7 @@ ExportService::Result ExportService::writeWav(const AudioClip& clip,
                              ? juce::AudioFormatWriterOptions::SampleFormat::floatingPoint
                              : juce::AudioFormatWriterOptions::SampleFormat::integral);
 
-    auto writer = wav.createWriterFor(std::move(stream), options);
+    auto writer = wav.createWriterFor(stream, options);
     if (writer == nullptr)
     {
         result.error = Error::CreateFailed;
@@ -325,4 +325,5 @@ ExportService::Result ExportService::writeWav(const AudioClip& clip,
     }
 
     return result;
+}
 }
