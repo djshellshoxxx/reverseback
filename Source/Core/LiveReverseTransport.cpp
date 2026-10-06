@@ -27,6 +27,7 @@ void LiveReverseTransport::start(std::size_t channels,
     frozenChunk_.clear();
 
     capture_.assign(channels_, std::vector<float>(static_cast<std::size_t>(chunkFrames_), 0.0f));
+    frozenChunk_.assign(channels_, std::vector<float>(static_cast<std::size_t>(chunkFrames_), 0.0f));
 
     const auto delayChunks =
         static_cast<std::size_t>((delayFrames_ + chunkFrames_ - 1) / chunkFrames_);
@@ -78,6 +79,23 @@ AudioBuffer LiveReverseTransport::processBlock(const AudioBuffer& input,
 {
     const auto outputChannels = channels_ != 0 ? channels_ : input.size();
     AudioBuffer output(outputChannels, std::vector<float>(frameCount, 0.0f));
+    processBlockInto(input, frameCount, output);
+    return output;
+}
+
+void LiveReverseTransport::processBlockInto(const AudioBuffer& input,
+                                            std::uint32_t frameCount,
+                                            AudioBuffer& output)
+{
+    const auto outputChannels = channels_ != 0 ? channels_ : input.size();
+    if (output.size() < outputChannels)
+        throw std::invalid_argument("Output has fewer channels than active Live Reverse");
+    for (std::size_t channel = 0; channel < outputChannels; ++channel)
+    {
+        if (output[channel].size() < frameCount)
+            throw std::invalid_argument("Output channel is shorter than frameCount");
+        std::fill_n(output[channel].begin(), frameCount, 0.0f);
+    }
 
     if (state_ == State::Ready)
     {
@@ -152,7 +170,6 @@ AudioBuffer LiveReverseTransport::processBlock(const AudioBuffer& input,
         ++absoluteFrame_;
     }
 
-    return output;
 }
 
 LiveReverseTransport::State LiveReverseTransport::state() const noexcept
@@ -204,7 +221,8 @@ void LiveReverseTransport::completeChunk()
 
 void LiveReverseTransport::adoptFrozenChunk()
 {
-    frozenChunk_ = capture_;
+    for (std::size_t channel = 0; channel < channels_; ++channel)
+        std::copy(capture_[channel].begin(), capture_[channel].end(), frozenChunk_[channel].begin());
     captureOffset_ = 0;
     queued_ = 0;
     readIndex_ = 0;
