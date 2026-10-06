@@ -150,6 +150,7 @@ private:
     juce::TextButton trim_{"Trim Silence"};
     juce::TextButton undoTrim_{"Undo Trim"};
     juce::ComboBox exportDepth_;
+    juce::ComboBox exportRate_;
     juce::ToggleButton normalize_{"Peak normalize to -1 dBFS"};
 
     juce::ComboBox preset_;
