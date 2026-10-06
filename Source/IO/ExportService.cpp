@@ -68,7 +68,12 @@ ExportService::Result ExportService::writeWav(const AudioClip& clip,
                      .withNumChannels(static_cast<int>(clip.channels()))
                      .withBitsPerSample(settings.bitDepth);
 
-    auto writer = wav.createWriterFor(std::move(stream), options);
+    if (settings.bitDepth == 32)
+        options = options.withSampleFormat(juce::AudioFormatWriterOptions::SampleFormat::floatingPoint);
+    else
+        options = options.withSampleFormat(juce::AudioFormatWriterOptions::SampleFormat::integral);
+
+    auto writer = wav.createWriterFor(stream, options);
     if (writer == nullptr)
     {
         result.error = Error::CreateFailed;
