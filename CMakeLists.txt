@@ -62,6 +62,12 @@ if(BUILD_TESTING)
     )
     target_link_libraries(reverseback_settings_tests PRIVATE reverseback_core)
     add_test(NAME reverseback_settings_tests COMMAND reverseback_settings_tests)
+
+    add_executable(reverseback_callback_allocation_tests
+        Tests/Core/test_callback_allocations.cpp
+    )
+    target_link_libraries(reverseback_callback_allocation_tests PRIVATE reverseback_core)
+    add_test(NAME reverseback_callback_allocation_tests COMMAND reverseback_callback_allocation_tests)
 endif()
 
 
