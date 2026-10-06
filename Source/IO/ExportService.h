@@ -14,6 +14,7 @@ struct ExportSettings
     double speed{1.0};
     Frame fadeFrames{0};
     int bitDepth{32};
+    double targetSampleRate{0.0};
     bool normalizeToMinusOneDb{false};
     bool allowOverwrite{false};
 };
