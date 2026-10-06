@@ -14,11 +14,13 @@ add_library(reverseback_core
     Source/Core/ClipPlayer.cpp
     Source/Core/SignalTools.cpp
     Source/Core/RealtimeTools.cpp
+    Source/IO/SettingsStore.cpp
 )
 
 target_include_directories(reverseback_core
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/Source/Core
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/IO
 )
 
 if(MSVC)
@@ -54,4 +56,10 @@ if(BUILD_TESTING)
     )
     target_link_libraries(reverseback_record_advanced_tests PRIVATE reverseback_core)
     add_test(NAME reverseback_record_advanced_tests COMMAND reverseback_record_advanced_tests)
+
+    add_executable(reverseback_settings_tests
+        Tests/Integration/test_settings.cpp
+    )
+    target_link_libraries(reverseback_settings_tests PRIVATE reverseback_core)
+    add_test(NAME reverseback_settings_tests COMMAND reverseback_settings_tests)
 endif()
