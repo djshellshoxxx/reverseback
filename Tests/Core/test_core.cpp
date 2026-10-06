@@ -1,6 +1,7 @@
 #include "ReverseBuffer.h"
 #include "FrameScheduler.h"
 #include "RecordTransport.h"
+#include "LiveReverseTransport.h"
 
 #include <cassert>
 #include <cstdint>
@@ -10,6 +11,7 @@
 using reverseback::AudioBuffer;
 using reverseback::FrameScheduler;
 using reverseback::RecordTransport;
+using reverseback::LiveReverseTransport;
 
 static void testExactMonoReverse()
 {
@@ -128,6 +130,43 @@ static void testReplayUsesRetainedTakeWithoutRecording()
     assert(transport.state() == RecordTransport::State::Ready);
 }
 
+static void testLiveChunksReverseIndependentlyAndStayChronological()
+{
+    LiveReverseTransport transport;
+    transport.start(1, 4, 2);
+
+    const auto output = transport.processBlock(
+        AudioBuffer{{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}}, 12);
+
+    assert((output[0] == std::vector<float>{0, 0, 0, 0, 0, 0, 4, 3, 2, 1, 8, 7}));
+
+    const auto tail = transport.processBlock(AudioBuffer{{13, 14, 15, 16}}, 4);
+    assert((tail[0] == std::vector<float>{6, 5, 12, 11}));
+}
+
+static void testLiveFirstOutputFrameMatchesChunkPlusDelay()
+{
+    LiveReverseTransport transport;
+    transport.start(1, 24000, 96000);
+
+    const auto first = transport.processBlock(
+        AudioBuffer(1, std::vector<float>(120000, 1.0f)), 120000);
+
+    for (std::size_t frame = 0; frame < 120000; ++frame)
+        assert(first[0][frame] == 0.0f);
+
+    const auto next = transport.processBlock(AudioBuffer{{2.0f}}, 1);
+    assert(next[0][0] == 1.0f);
+    assert(transport.absoluteFrame() == 120001);
+}
+
+static void testLiveQueueCapacityIsBounded()
+{
+    LiveReverseTransport transport;
+    transport.start(2, 100, 1000);
+    assert(transport.capacity() == 14);
+}
+
 int main()
 {
     testExactMonoReverse();
@@ -138,6 +177,9 @@ int main()
     testStopDuringRecordingPreservesPreviousCompleteTake();
     testInputIsIgnoredDuringWaitAndPlayback();
     testReplayUsesRetainedTakeWithoutRecording();
+    testLiveChunksReverseIndependentlyAndStayChronological();
+    testLiveFirstOutputFrameMatchesChunkPlusDelay();
+    testLiveQueueCapacityIsBounded();
     std::cout << "ReverseBack core tests passed\n";
     return 0;
 }
