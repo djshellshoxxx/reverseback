@@ -195,6 +195,8 @@ AppSettings SettingsStore::sanitize(AppSettings s)
     s.triggerThresholdDb = std::clamp(s.triggerThresholdDb, -65.0, -15.0);
     s.repeatGapSeconds = std::clamp(s.repeatGapSeconds, 0.0, 2.0);
     s.exportBitDepth = s.exportBitDepth == 24 ? 24 : 32;
+    if (s.exportSampleRate != 44100 && s.exportSampleRate != 48000)
+        s.exportSampleRate = 0;
     return s;
 }
 
@@ -220,6 +222,7 @@ std::string SettingsStore::encodeSettings(const AppSettings& s, const std::strin
         << prefix << "repeatGapSeconds=" << s.repeatGapSeconds << '\n'
         << prefix << "exactSamples=" << (s.exactSamples ? 1 : 0) << '\n'
         << prefix << "exportBitDepth=" << s.exportBitDepth << '\n'
+        << prefix << "exportSampleRate=" << s.exportSampleRate << '\n'
         << prefix << "normalizeExport=" << (s.normalizeExport ? 1 : 0) << '\n'
         << prefix << "inputMonitor=" << (s.inputMonitor ? 1 : 0) << '\n'
         << prefix << "shortcutsEnabled=" << (s.shortcutsEnabled ? 1 : 0) << '\n'
@@ -252,6 +255,7 @@ void SettingsStore::applyValue(AppSettings& s, const std::string& key, const std
         else if (key == "repeatGapSeconds") s.repeatGapSeconds = std::stod(value);
         else if (key == "exactSamples") s.exactSamples = parseBool(value);
         else if (key == "exportBitDepth") s.exportBitDepth = std::stoi(value);
+        else if (key == "exportSampleRate") s.exportSampleRate = std::stoi(value);
         else if (key == "normalizeExport") s.normalizeExport = parseBool(value);
         else if (key == "inputMonitor") s.inputMonitor = parseBool(value);
         else if (key == "shortcutsEnabled") s.shortcutsEnabled = parseBool(value);
