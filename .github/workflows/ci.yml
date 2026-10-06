@@ -1,7 +1,7 @@
 name: Core CI
 
 concurrency:
-  group: reverseback-ci-${{ github.ref }}
+  group: reverseback-ci-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 on:
