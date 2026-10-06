@@ -132,7 +132,11 @@ void AudioDeviceAdapter::startLive(double chunkSeconds, double delaySeconds)
 
 void AudioDeviceAdapter::freezeLive()
 {
-    live_.requestFreeze();
+    suspendCallback([&]
+    {
+        live_.requestFreeze();
+        publishState();
+    });
 }
 
 void AudioDeviceAdapter::resumeLive()
@@ -210,18 +214,31 @@ std::shared_ptr<const AudioClip> AudioDeviceAdapter::copyFrozenChunk()
 void AudioDeviceAdapter::setInputGainDb(double db) noexcept
 {
     requestedInputGainDb_.store(std::clamp(db, -24.0, 24.0));
-    inputGain_.setTargetDb(requestedInputGainDb_.load());
 }
 
 void AudioDeviceAdapter::setOutputVolumeDb(double db) noexcept
 {
     requestedOutputGainDb_.store(std::clamp(db, -60.0, 0.0));
-    outputGain_.setTargetDb(requestedOutputGainDb_.load());
 }
 
 void AudioDeviceAdapter::setInputMonitor(bool enabled) noexcept
 {
     inputMonitor_.store(enabled);
+}
+
+void AudioDeviceAdapter::triggerTestTone(double frequencyHz, double seconds)
+{
+    suspendCallback([&]
+    {
+        record_.stop();
+        live_.stop();
+        filePlayer_.stop();
+        testToneFrequencyHz_.store(std::clamp(frequencyHz, 40.0, 4000.0));
+        testTonePhase_ = 0.0;
+        testToneFramesRemaining_.store(static_cast<std::uint64_t>(
+            std::llround(currentSampleRate() * std::clamp(seconds, 0.05, 5.0))));
+        publishState();
+    });
 }
 
 void AudioDeviceAdapter::audioDeviceAboutToStart(juce::AudioIODevice* device)
@@ -242,8 +259,10 @@ void AudioDeviceAdapter::audioDeviceAboutToStart(juce::AudioIODevice* device)
         static_cast<std::size_t>(std::max(preparedInputChannels_, preparedOutputChannels_)),
         std::vector<float>(static_cast<std::size_t>(block), 0.0f));
 
-    inputGain_.prepare(rate, 0.020, requestedInputGainDb_.load());
-    outputGain_.prepare(rate, 0.020, requestedOutputGainDb_.load());
+    appliedInputGainDb_ = requestedInputGainDb_.load();
+    appliedOutputGainDb_ = requestedOutputGainDb_.load();
+    inputGain_.prepare(rate, 0.020, appliedInputGainDb_);
+    outputGain_.prepare(rate, 0.020, appliedOutputGainDb_);
 
     sampleRate_.store(rate);
     bufferSize_.store(block);
@@ -282,17 +301,31 @@ void AudioDeviceAdapter::audioDeviceIOCallbackWithContext(
     if (numSamples <= 0 || numSamples > preparedBlockSize_)
         return;
 
+    const auto requestedIn = requestedInputGainDb_.load();
+    if (requestedIn != appliedInputGainDb_)
+    {
+        appliedInputGainDb_ = requestedIn;
+        inputGain_.setTargetDb(appliedInputGainDb_);
+    }
+
+    const auto requestedOut = requestedOutputGainDb_.load();
+    if (requestedOut != appliedOutputGainDb_)
+    {
+        appliedOutputGainDb_ = requestedOut;
+        outputGain_.setTargetDb(appliedOutputGainDb_);
+    }
+
     float inPeak = 0.0f;
 
-    for (int channel = 0; channel < preparedInputChannels_; ++channel)
+    for (int frame = 0; frame < numSamples; ++frame)
     {
-        auto& target = inputScratch_[static_cast<std::size_t>(channel)];
-        const float* source = channel < numInputChannels ? inputChannelData[channel] : nullptr;
-
-        for (int frame = 0; frame < numSamples; ++frame)
+        const auto gain = inputGain_.nextGain();
+        for (int channel = 0; channel < preparedInputChannels_; ++channel)
         {
+            auto& target = inputScratch_[static_cast<std::size_t>(channel)];
+            const float* source = channel < numInputChannels ? inputChannelData[channel] : nullptr;
             const auto sample = source != nullptr ? sanitizeSample(source[frame]) : 0.0f;
-            const auto gained = sample * inputGain_.nextGain();
+            const auto gained = sample * gain;
             target[static_cast<std::size_t>(frame)] = gained;
             inPeak = std::max(inPeak, std::abs(gained));
         }
@@ -326,13 +359,26 @@ void AudioDeviceAdapter::audioDeviceIOCallbackWithContext(
     {
         const auto outputGain = outputGain_.nextGain();
 
+        float testTone = 0.0f;
+        auto toneRemaining = testToneFramesRemaining_.load();
+        if (toneRemaining > 0)
+        {
+            constexpr double twoPi = 6.28318530717958647692;
+            testTone = static_cast<float>(0.125892541 * std::sin(testTonePhase_));
+            testTonePhase_ += twoPi * testToneFrequencyHz_.load() / std::max(1.0, sampleRate_.load());
+            if (testTonePhase_ >= twoPi)
+                testTonePhase_ -= twoPi;
+            testToneFramesRemaining_.store(toneRemaining - 1);
+        }
+
         for (int outputChannel = 0; outputChannel < numOutputChannels; ++outputChannel)
         {
             const auto wetChannel = wetScratch_.size() == 1
                 ? 0U
                 : static_cast<std::size_t>(std::min(outputChannel, static_cast<int>(wetScratch_.size()) - 1));
 
-            float sample = wetScratch_[wetChannel][static_cast<std::size_t>(frame)] * outputGain;
+            float sample =
+                (wetScratch_[wetChannel][static_cast<std::size_t>(frame)] + testTone) * outputGain;
 
             if (monitor && !inputScratch_.empty())
             {
