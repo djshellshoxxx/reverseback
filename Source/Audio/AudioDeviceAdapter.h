@@ -67,6 +67,7 @@ public:
     void setInputGainDb(double db) noexcept;
     void setOutputVolumeDb(double db) noexcept;
     void setInputMonitor(bool enabled) noexcept;
+    void triggerTestTone(double frequencyHz = 440.0, double seconds = 1.0);
 
     void audioDeviceAboutToStart(juce::AudioIODevice* device) override;
     void audioDeviceStopped() override;
@@ -106,6 +107,12 @@ private:
     std::atomic<bool> inputMonitor_{false};
     std::atomic<double> requestedInputGainDb_{0.0};
     std::atomic<double> requestedOutputGainDb_{-12.0};
+    double appliedInputGainDb_{0.0};
+    double appliedOutputGainDb_{-12.0};
+
+    std::atomic<std::uint64_t> testToneFramesRemaining_{0};
+    std::atomic<double> testToneFrequencyHz_{440.0};
+    double testTonePhase_{0.0};
 
     std::atomic<int> publishedMode_{0};
     std::atomic<int> publishedState_{0};
