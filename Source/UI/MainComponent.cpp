@@ -69,7 +69,7 @@ MainComponent::MainComponent()
     for (auto* component : std::initializer_list<juce::Component*>{
              &countdown_, &autoStart_, &triggerThreshold_, &repeatGap_,
              &inputGain_, &monitor_, &edgeFade_, &exactSamples_,
-             &trim_, &undoTrim_, &exportDepth_, &normalize_})
+             &trim_, &undoTrim_, &exportDepth_, &exportRate_, &normalize_})
         advanced_.addAndMakeVisible(component);
 
     deviceError_ = adapter_.initialise();
@@ -263,6 +263,11 @@ void MainComponent::configureControls()
     exportDepth_.addItem("32-bit float WAV", 1);
     exportDepth_.addItem("24-bit PCM WAV", 2);
     exportDepth_.setSelectedId(settings_.exportBitDepth == 24 ? 2 : 1);
+    exportRate_.addItem("Source sample rate", 1);
+    exportRate_.addItem("44.1 kHz", 2);
+    exportRate_.addItem("48 kHz", 3);
+    exportRate_.setSelectedId(settings_.exportSampleRate == 44100 ? 2 :
+                              settings_.exportSampleRate == 48000 ? 3 : 1);
     normalize_.setToggleState(settings_.normalizeExport, juce::dontSendNotification);
 
     preset_.setTextWhenNothingSelected("Session preset");
@@ -296,6 +301,8 @@ void MainComponent::configureControls()
                 repeatGap_.setValue(p.repeatGapSeconds);
                 exactSamples_.setToggleState(p.exactSamples, juce::dontSendNotification);
                 exportDepth_.setSelectedId(p.exportBitDepth == 24 ? 2 : 1);
+                exportRate_.setSelectedId(p.exportSampleRate == 44100 ? 2 :
+                                          p.exportSampleRate == 48000 ? 3 : 1);
                 normalize_.setToggleState(p.normalizeExport, juce::dontSendNotification);
                 direction_.setSelectedId(p.direction == 0 ? 2 : 1);
                 loop_.setSelectedId(p.loopPattern + 1);
@@ -468,7 +475,8 @@ void MainComponent::resized()
         auto r3 = inner.removeFromTop(rowH);
         trim_.setBounds(r3.removeFromLeft(130).reduced(2));
         undoTrim_.setBounds(r3.removeFromLeft(120).reduced(2));
-        exportDepth_.setBounds(r3.removeFromLeft(180).reduced(2));
+        exportDepth_.setBounds(r3.removeFromLeft(165).reduced(2));
+        exportRate_.setBounds(r3.removeFromLeft(160).reduced(2));
         normalize_.setBounds(r3.reduced(2));
     }
 }
@@ -961,6 +969,8 @@ void MainComponent::exportAsync(const juce::File& destination, bool allowOverwri
         : static_cast<Frame>(std::llround(
               asset->sampleRate() * edgeFade_.getValue() / 1000.0));
     exportSettings.bitDepth = exportDepth_.getSelectedId() == 2 ? 24 : 32;
+    exportSettings.targetSampleRate = exportRate_.getSelectedId() == 2 ? 44100.0 :
+                                      exportRate_.getSelectedId() == 3 ? 48000.0 : 0.0;
     exportSettings.normalizeToMinusOneDb = normalize_.getToggleState();
     exportSettings.allowOverwrite = allowOverwrite;
     const auto selection = currentSelection();
@@ -1282,6 +1292,8 @@ void MainComponent::persistSettings()
     settings_.repeatGapSeconds = repeatGap_.getValue();
     settings_.exactSamples = exactSamples_.getToggleState();
     settings_.exportBitDepth = exportDepth_.getSelectedId() == 2 ? 24 : 32;
+    settings_.exportSampleRate = exportRate_.getSelectedId() == 2 ? 44100 :
+                                 exportRate_.getSelectedId() == 3 ? 48000 : 0;
     settings_.normalizeExport = normalize_.getToggleState();
     settings_.inputMonitor = false;
 
