@@ -103,6 +103,24 @@ static void freezeAdoptsCompletedChunkAndLoops()
     assert(live.state() == LiveReverseTransport::State::Filling);
 }
 
+static void directionAndSpeedChangesPreserveApproximateSourcePosition()
+{
+    const auto clip = makeMono({0,1,2,3,4,5,6,7,8,9});
+    ClipPlayer p;
+    p.prepare(clip, {0,10}, Direction::Forward, 1.0, LoopPattern::Once, 1);
+    AudioBuffer first(1, std::vector<float>(4));
+    p.process(first, 4);
+    const auto before = p.currentSourceFrame();
+
+    p.setDirectionAtCurrentPosition(Direction::Reverse);
+    const auto afterDirection = p.currentSourceFrame();
+    assert(afterDirection == before || afterDirection + 1 == before || before + 1 == afterDirection);
+
+    p.setSpeedAtCurrentPosition(0.5);
+    const auto afterSpeed = p.currentSourceFrame();
+    assert(afterSpeed == afterDirection || afterSpeed + 1 == afterDirection || afterDirection + 1 == afterSpeed);
+}
+
 int main()
 {
     exactReverseAndDoubleReverse();
@@ -112,5 +130,6 @@ int main()
     trimSelectionFindsSignalAndPadding();
     trimSilentClipReturnsWholeSelection();
     freezeAdoptsCompletedChunkAndLoops();
+    directionAndSpeedChangesPreserveApproximateSourcePosition();
     return 0;
 }
