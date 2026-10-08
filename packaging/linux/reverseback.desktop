@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=ReverseBack
+GenericName=Audio Reverser
+Comment=Hear your voice, live audio and files backwards
+Exec=reverseback %f
+Icon=reverseback
+Terminal=false
+Categories=AudioVideo;Audio;
+MimeType=audio/x-wav;audio/x-aiff;audio/flac;
+Keywords=reverse;backwards;voice;audio;plugin;
+StartupWMClass=ReverseBack

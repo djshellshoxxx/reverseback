@@ -1,0 +1,7 @@
+build*/
+dist/
+.cache/
+*.o
+*.so
+*.tmp
+.DS_Store
