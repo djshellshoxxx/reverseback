@@ -6,6 +6,10 @@ A playful local audio toy for reversing your voice, live audio chunks and audio 
 
 ![Record & Reverse](docs/screenshots/record.png)
 
+| Live Reverse | Reverse File | Advanced drawer | Export |
+| --- | --- | --- | --- |
+| ![Live](docs/screenshots/live.png) | ![File](docs/screenshots/file.png) | ![Advanced](docs/screenshots/advanced.png) | ![Export](docs/screenshots/export.png) |
+
 ## Modes
 
 - **Record & Reverse:** record for a chosen time, wait, then hear the complete take backwards. Five seconds of recording plus two seconds of wait starts playback at seven seconds.
