@@ -20,7 +20,7 @@ All engine code lives in `Source/Core`, namespace `rb`, C++20, with no JUCE depe
 | C10 | Hold maximum | Hold to Record is limited to 60 s (the capture maximum). |
 | C11 | Repeat Session buffers | Each cycle needs a fresh take buffer allocated off the audio thread; the engine requests it with a `NeedSpareTake` event (section 9). |
 | C12 | Loop and PingPong vs Repeat Session | All three are mutually exclusive: choosing Loop or PingPong clears Repeat Session; enabling Repeat Session sets Loop Pattern to Once. |
-| C13 | Armed trigger | The detector measures a peak envelope; "50 ms sustained" means the envelope stayed at or above the threshold for 50 ms without a single dip below it. |
+| C13 | Armed trigger | The detector measures a sliding 10 ms RMS (mean square across channels); "50 ms sustained" means that level stayed at or above the threshold for 50 ms without a single dip below it. A brief click (shorter than about 40 ms) cannot trigger; the 10 ms window rides through the gaps between voice periods. |
 
 ## 2. Types and frame arithmetic
 
@@ -51,7 +51,7 @@ Bounded windowed-sinc interpolation. Used whenever `r != 1`; at `r == 1` with in
 - For a source position `p` (double) and ratio `r`: cutoff `fc = min(1, 1/r)`; half-width `H = 16 / fc`; taps `k = ceil(p - H) .. floor(p + H)`; weight `w_k = fc * P(fc * (k - p))`; output `y = sum(w_k * x[clamp(k)]) / sum(w_k)`. Weight normalisation preserves DC gain at every phase.
 - **Endpoint clamping:** source indices are clamped to the selection `[begin, end-1]` (edge hold). Playback of a selection therefore never reads outside it, and results at the ends are well-defined.
 - Maximum half-width is 16 / (1/4.35) ~ 70 taps (192 kHz -> 44.1 kHz). Scratch for the gathered window is preallocated in `ClipPlayer` for `maxBlockFrames * max(r) + 2H + 8` frames.
-- Quality acceptance: a 1 kHz sine at `r = 2` has THD+N below -80 dB; energy above `fc` Nyquist is suppressed by at least 80 dB; DC gain error below 1e-6 (tests T-RES-*).
+- Quality acceptance (tests `T_RES_*`, measured on the shipped table): residual after best-fit sinusoid removal is -82 dB for a 1 kHz tone at 2x speed, -135 dB at 0.5x, -158 dB for 96 kHz -> 48 kHz and -103 dB for 44.1 kHz -> 48 kHz; a 20 kHz tone played at 2x (which would alias) is attenuated by more than 70 dB; DC gain error is below 1e-5 at every tested phase.
 
 ## 5. `ClipPlayer`
 
@@ -76,8 +76,7 @@ If `ClipSource::read` fails (disk cache miss) the player fades out over the decl
 ## 6. Signal tools (`SignalTools.h`)
 
 - `GainSmoother`: linear ramp, 20 ms, `set(target)`, `next()`.
-- `LevelFollower`: `e = max(|x|, e * decay)` with decay set for 5 ms.
-- `VoiceTrigger(thresholdDb, sustainFrames = 50 ms)`: feeds a `LevelFollower`; counts consecutive samples with `e >= threshold`; fires when the count reaches `sustainFrames`; any dip below resets to 0.
+- `VoiceTrigger(thresholdDb, sustainFrames = 50 ms)`: sliding 10 ms rectangular-window RMS of the frame mean square; counts consecutive frames with `rms >= threshold`; fires when the count reaches `sustainFrames`; any dip resets to 0. Allocation happens in `prepare`; `arm(thresholdDb)` is real-time safe.
 - `PreRollRing`: 200 ms per channel; `available() = min(filled, 200 ms)`; chronological copy-out.
 - `findNonSilentSelection(source, thresholdDb = -50, window = 20 ms, padding = 50 ms)`: RMS per window over the channel-mean-square; first/last window at or above the threshold define `[first*W - pad, (last+1)*W + pad)` clamped to the clip; none found -> empty `Selection` (UI shows "No speech or sound detected"). Selection only; never modifies audio. Undo = restore the previous selection (A19).
 - `OutputLimiter` (standalone only): look-ahead `Lh = ceil(1 ms * rate)` frames, ceiling -1 dBFS (0.891251), no make-up gain. Per sample target gain `t = min(1, ceiling / |x|)` (max over channels); `m[n] = min t over the window [n-Lh, n]`; release smoothing `g_r = min(m, g_r + (1 - g_r) * a_rel)` with 80 ms release; the applied gain is the mean of `g_r` over `Lh + 1` samples; the signal is delayed by `Lh` frames. Below ceiling the gain is exactly 1.0. Guarantee: `|out| <= ceiling` for finite input. Latency `Lh` is reported (snapshot `limiterLatencyFrames`) and shown in device status.
