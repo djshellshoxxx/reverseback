@@ -337,6 +337,7 @@ void LiveTransport::process (const float* const* in, std::size_t inCh, float* co
             Event e;
             e.type = EventType::FrozenReady;
             e.a = frozenGen_;
+            e.b = frozenSlot_;
             sink_->post (std::move (e));
         }
     }

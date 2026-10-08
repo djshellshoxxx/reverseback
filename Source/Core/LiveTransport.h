@@ -65,6 +65,17 @@ public:
     Frame chunkFrames() const noexcept { return W_; }
     std::uint32_t frozenGeneration() const noexcept { return frozenGen_; }
     Frame frozenSlot() const noexcept { return frozenSlot_; }
+    // Slot the display should show: the frozen chunk when Frozen, else the chunk now playing (-1 = none).
+    std::int32_t displaySlot() const noexcept
+    {
+        if (state_ == State::Frozen)
+            return static_cast<std::int32_t> (frozenSlot_);
+        return playingChunk_ >= 0 ? static_cast<std::int32_t> (slotOf (playingChunk_)) : -1;
+    }
+    std::int32_t captureSlot() const noexcept
+    {
+        return (state_ == State::Ready || W_ == 0) ? -1 : static_cast<std::int32_t> (slotOf (static_cast<std::int64_t> (t_ / W_)));
+    }
     const std::shared_ptr<LiveStorage>& storage() const noexcept { return storage_; }
 
 private:

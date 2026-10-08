@@ -34,7 +34,8 @@ add_library(rb_core STATIC
   Source/Core/LiveTransport.cpp
   Source/Core/Engine.cpp
   Source/Core/Presets.cpp
-  Source/Core/OfflineRender.cpp)
+  Source/Core/OfflineRender.cpp
+  Source/Core/DiskClipSource.cpp)
 target_include_directories(rb_core PUBLIC Source/Core)
 target_compile_features(rb_core PUBLIC cxx_std_20)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -59,8 +60,11 @@ if(RB_BUILD_TESTS)
     Tests/Core/RecordTests.cpp
     Tests/Core/LiveTests.cpp
     Tests/Core/EngineTests.cpp
-    Tests/Core/StressTests.cpp)
+    Tests/Core/StressTests.cpp
+    Tests/Core/DiskTests.cpp)
   target_link_libraries(rb_core_tests PRIVATE rb_core)
+  find_package(Threads REQUIRED)
+  target_link_libraries(rb_core PUBLIC Threads::Threads)
   target_include_directories(rb_core_tests PRIVATE Tests/Core)
   add_test(NAME rb_core_tests COMMAND rb_core_tests)
 endif()

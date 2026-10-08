@@ -211,7 +211,8 @@ void Engine::process (const float* const* in, std::size_t inCh, float* const* ou
             for (std::size_t c = 0; c < std::min (inCh, kMaxChannels); ++c)
                 for (std::size_t i = 0; i < n; ++i)
                     pk = std::max (pk, std::abs (inPtr[c][i]));
-        inPeak_ = pk;
+        // Peak with ~150 ms decay so a 30 Hz UI poll cannot miss short peaks between audio blocks.
+        inPeak_ = std::max (pk, inPeak_ * static_cast<float> (std::exp (-static_cast<double> (n) / (rate_ * 0.15))));
         if (pk > 1.0f)
             ++overload_;
 
@@ -260,6 +261,7 @@ void Engine::publish (std::size_t) noexcept
     s.liveState = static_cast<std::uint8_t> (live_.state());
     s.filePlaying = file_.isPlaying() ? 1 : 0;
     s.fileUnderrun = file_.underrun() ? 1 : 0;
+    s.recordHeld = rec_.held() && rec_.state() == RecordTransport::State::Recording ? 1 : 0;
     s.takeId = rec_.takeId();
     s.takeFrames = rec_.takeFrames();
     s.frozenGeneration = live_.frozenGeneration();
@@ -282,6 +284,8 @@ void Engine::publish (std::size_t) noexcept
         case Mode::Live:
             s.liveChunkIndex = live_.playingChunk();
             s.liveCaptureChunk = live_.captureChunk();
+            s.liveSlot = live_.displaySlot();
+            s.liveCaptureSlot = live_.captureSlot();
             s.stateFrame = live_.captureOffset();
             s.stateLength = live_.chunkFrames();
             s.fillProgress = live_.fillProgress();

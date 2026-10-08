@@ -73,7 +73,8 @@ struct Snapshot
     std::uint8_t filePlaying = 0;
     std::uint8_t error = 0;
     std::uint8_t fileUnderrun = 0;
-    std::uint8_t reserved[2] = {};
+    std::uint8_t recordHeld = 0;
+    std::uint8_t reserved = 0;
 
     std::uint32_t takeId = 0;
     std::uint32_t frozenGeneration = 0;
@@ -86,6 +87,8 @@ struct Snapshot
     std::uint64_t countdownLeft = 0;
     std::int64_t liveChunkIndex = -1;
     std::int64_t liveCaptureChunk = -1;
+    std::int32_t liveSlot = -1;          // slot to display (playing chunk, or the frozen chunk)
+    std::int32_t liveCaptureSlot = -1;
 
     float playhead = 0.0f;
     float inputPeak = 0.0f;
@@ -111,6 +114,11 @@ public:
     void stopImmediate() noexcept;
     void setLimiterLatency (std::size_t frames) noexcept { limiterLatency_ = static_cast<std::uint32_t> (frames); }
     void noteSanitized (std::uint32_t total) noexcept { sanitized_ = total; }
+    // Direct monitoring is muted while Record mode is waiting or playing back (V1 section 5.5).
+    bool monitorMuted() const noexcept
+    {
+        return mode_ == Mode::Record && (rec_.state() == RecordTransport::State::Waiting || rec_.state() == RecordTransport::State::Playing);
+    }
 
     // ----- any thread -----
     Snapshot snapshot() const noexcept { return snapshot_.load(); }

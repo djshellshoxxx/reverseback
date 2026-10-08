@@ -7,7 +7,7 @@ Settles the open items from `REVERSEBACK_V1.md` §5.1 ("pin an exact compatible 
 | Dependency | Pin | Role | License used |
 | --- | --- | --- | --- |
 | JUCE | tag `8.0.15` (git) | device I/O, GUI, file formats, plugin wrappers | **AGPLv3** (JUCE is dual-licensed AGPLv3 / commercial; JUCE 9.x has the same structure) |
-| clap-juce-extensions | tag `0.26.0` (commit `cbe0fe9`) with its pinned `clap` and `clap-helpers` submodules | CLAP wrapper | MIT |
+| clap-juce-extensions | commit `7adee3a1bd4684d4caa5601100e364abccff4b4d` (0.26.0 + 117 commits; the 0.26.0 tag predates JUCE 8.0.11 and does not compile against JUCE 8.0.15) with its pinned `clap` and `clap-helpers` submodules | CLAP wrapper | MIT |
 | VST3 SDK | bundled inside JUCE 8.0.15 | VST3 wrapper | per JUCE (GPLv3 path) |
 | Inter font | 4.0 (embedded TTF/OTF subset) | UI typography | SIL OFL 1.1 |
 

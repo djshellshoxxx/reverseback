@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace rbt
@@ -27,6 +28,8 @@ struct Registrar
     Registrar (const char* n, void (*f)()) { registry().push_back ({ n, f }); }
 };
 
+struct TestAbort {};   // thrown to stop the current test after a fatal failure
+
 inline int& failureCount()
 {
     static int f = 0;
@@ -37,6 +40,23 @@ inline int& checkCount()
 {
     static int c = 0;
     return c;
+}
+
+template <class T>
+std::string toStr (const T& v)
+{
+    if constexpr (std::is_arithmetic_v<T>)
+        return std::to_string (v);
+    else if constexpr (std::is_enum_v<T>)
+        return std::to_string (static_cast<long long> (v));
+    else if constexpr (std::is_pointer_v<T>)
+    {
+        char buf[32];
+        std::snprintf (buf, sizeof (buf), "%p", static_cast<const void*> (v));
+        return buf;
+    }
+    else
+        return "<value>";
 }
 
 inline void fail (const char* file, int line, const std::string& what)
@@ -80,7 +100,7 @@ int runAll (int argc, char** argv);
         const auto vb_ = (b);                                                                              \
         if (! (va_ == vb_))                                                                                \
             ::rbt::fail (__FILE__, __LINE__,                                                               \
-                         std::string (#a " == " #b "  (") + std::to_string (va_) + " vs " + std::to_string (vb_) + ")"); \
+                         std::string (#a " == " #b "  (") + ::rbt::toStr (va_) + " vs " + ::rbt::toStr (vb_) + ")"); \
     } while (0)
 
 #define CHECK_NEAR(a, b, tol)                                                                              \

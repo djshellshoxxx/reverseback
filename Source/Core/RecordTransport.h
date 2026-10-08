@@ -45,6 +45,7 @@ public:
     bool busy() const noexcept { return state_ != State::Ready || player_.isActive(); }
     Frame stateFrame() const noexcept;
     Frame stateLength() const noexcept;
+    bool held() const noexcept { return held_; }
     Frame countdownLeft() const noexcept { return state_ == State::Countdown ? cdLeft_ : 0; }
     float playhead() const noexcept { return player_.positionNorm(); }
     std::uint32_t takeId() const noexcept { return takeId_; }
