@@ -197,12 +197,11 @@ RB_TEST (audit_prefetch_thread_backs_off_when_the_cache_file_disappears)
     std::remove (t.path.c_str());            // a temp cleaner removes the cache under a running session
     src->hint (4 * DiskCacheWriter::kBlockFrames, false);
     std::this_thread::sleep_for (std::chrono::milliseconds (100));   // let the worker hit the failure
-    const std::clock_t c0 = std::clock();
-    const auto w0 = std::chrono::steady_clock::now();
+    const std::uint32_t before = src->loadFailures();
     std::this_thread::sleep_for (std::chrono::milliseconds (600));
-    const double cpu = static_cast<double> (std::clock() - c0) / CLOCKS_PER_SEC;
-    const double wall = std::chrono::duration<double> (std::chrono::steady_clock::now() - w0).count();
-    CHECK (cpu < 0.25 * wall);               // it used to burn a whole core (~1.0)
+    const std::uint32_t attempts = src->loadFailures() - before;
+    CHECK (before >= 1);                     // the failure was noticed ...
+    CHECK (attempts <= 30);                  // ... and retried every ~100 ms, not in a tight loop (it used to be thousands)
     float buf[16];
     float* dst[1] = { buf };
     CHECK (! src->read (4 * static_cast<std::int64_t> (DiskCacheWriter::kBlockFrames), 16, dst));   // reports a miss, no crash

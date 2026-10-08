@@ -258,7 +258,10 @@ void DiskClipSource::worker()
             if (loadBlock (b, scratch))
                 loaded = true;
             else
+            {
                 failed = true;   // the cache file vanished or cannot be read: do not hammer it
+                loadFailures_.fetch_add (1, std::memory_order_relaxed);
+            }
         }
         if (! loaded)
         {

@@ -58,6 +58,8 @@ public:
     // Waits (up to timeoutMs) until `frame` and a few following blocks in the hinted direction are resident.
     bool prime (Frame frame, bool backward, int timeoutMs) const;
     std::uint32_t misses() const noexcept { return misses_.load (std::memory_order_relaxed); }
+    // Number of times the prefetcher failed to load a block (cache file vanished or unreadable); for diagnostics and tests.
+    std::uint32_t loadFailures() const noexcept { return loadFailures_.load (std::memory_order_relaxed); }
 
     // The source then owns its cache file: it is deleted (and its directory, if empty) when the last
     // reference goes away, after the prefetch thread has stopped.
@@ -89,6 +91,7 @@ private:
     mutable std::atomic<std::int64_t> focus_ { 0 };
     mutable std::atomic<int> dir_ { 0 };
     mutable std::atomic<std::uint32_t> misses_ { 0 };
+    std::atomic<std::uint32_t> loadFailures_ { 0 };
 
     std::thread thread_;
     mutable std::mutex mutex_;
