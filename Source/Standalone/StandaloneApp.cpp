@@ -11,7 +11,8 @@ namespace
 juce::String usage()
 {
     return "ReverseBack " RB_VERSION_STRING "\n"
-           "Usage: ReverseBack [--help] [--version] [--selftest]\n"
+           "Usage: ReverseBack [--help] [--version] [--selftest] [audio-file]\n"
+           "  audio-file   a WAV, AIFF or FLAC file to open in Reverse File mode\n"
            "  --selftest   run an offline engine check (no audio device needed) and exit 0 on success\n";
 }
 
@@ -84,21 +85,39 @@ public:
 
     void initialise (const juce::String& commandLine) override
     {
-        if (commandLine.contains ("--version"))
+        // Exact token matching: a file called "my-horse.wav" must not look like "-h".
+        const juce::StringArray args = juce::StringArray::fromTokens (commandLine, true);
+        juce::File fileToOpen;
+        for (const auto& raw : args)
+        {
+            const juce::String a = raw.unquoted();
+            if (a == "--version" || a == "--help" || a == "-h" || a == "--selftest")
+                continue;
+            if (a.startsWith ("-"))
+            {
+                std::cerr << "Unknown option: " << a << "\n" << usage() << std::endl;
+                setApplicationReturnValue (2);
+                quit();
+                return;
+            }
+            if (fileToOpen == juce::File() && a.isNotEmpty())
+                fileToOpen = juce::File::getCurrentWorkingDirectory().getChildFile (a);
+        }
+        if (args.contains ("--version"))
         {
             std::cout << "ReverseBack " << RB_VERSION_STRING << std::endl;
             setApplicationReturnValue (0);
             quit();
             return;
         }
-        if (commandLine.contains ("--help") || commandLine.contains ("-h"))
+        if (args.contains ("--help") || args.contains ("-h"))
         {
             std::cout << usage() << std::endl;
             setApplicationReturnValue (0);
             quit();
             return;
         }
-        if (commandLine.contains ("--selftest"))
+        if (args.contains ("--selftest"))
         {
             juce::String report;
             const bool ok = runSelfTest (report);
@@ -124,6 +143,20 @@ public:
         deviceManager.addAudioCallback (&player);
 
         window = std::make_unique<MainWindow> (*this, *processor);
+
+        if (fileToOpen != juce::File())
+        {
+            if (! fileToOpen.existsAsFile())
+                processor->showBanner (BannerKind::File, "Could not find " + fileToOpen.getFullPathName(), false, false, 6.0);
+            else if (! fileToOpen.hasFileExtension ("wav;aif;aiff;flac"))
+                processor->showBanner (BannerKind::Info, "Unsupported file. ReverseBack opens WAV, AIFF and FLAC.", false, false, 6.0);
+            else
+            {
+                if (auto* mode = processor->apvts.getParameter (ids::mode))
+                    mode->setValueNotifyingHost (mode->convertTo0to1 (2.0f));
+                processor->loadFile (fileToOpen);
+            }
+        }
     }
 
     void shutdown() override

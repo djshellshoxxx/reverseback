@@ -28,6 +28,7 @@ done
 echo "[3] standalone self-test (offline engine check, no display or audio device)"
 if env -u DISPLAY "$APP" --selftest 2>/dev/null | grep -q "selftest: PASS"; then ok "--selftest PASS"; else bad "--selftest"; fi
 "$APP" --version 2>/dev/null | grep -q "ReverseBack" && ok "--version" || bad "--version"
+env -u DISPLAY "$APP" --bogus >/dev/null 2>&1; [ $? = 2 ] && ok "unknown option exits with status 2" || bad "unknown option handling"
 
 echo "[4] CLAP probe (entry, descriptor, parameters, ports, state, processing)"
 CLAPINC="$(find "$BUILD/_deps" /home/user/deps -type d -path '*clap-libs/clap/include' 2>/dev/null | head -1)"
