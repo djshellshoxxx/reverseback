@@ -10,8 +10,8 @@ This document says what is implemented, what evidence exists for each acceptance
 | JUCE layer (processor, 24 parameters, state, file import, export, settings) | Implemented |
 | GUI (three modes, advanced drawer, waveform, sheets, presets menu, shortcuts, drag and drop) | Implemented, screenshots in `docs/screenshots` |
 | Formats | Standalone, VST3, CLAP (Linux x86_64 built and validated); Windows defined in CI only |
-| Tests | 69 core tests (220 022 checks) and 34 integration tests (22 066 checks) |
-| Sanitizers | Core suite under ASan+UBSan and under TSan; integration suite under ASan+UBSan (see section 4) |
+| Tests | 86 core tests (221 323 checks) and 50 integration tests (22 277 checks) |
+| Sanitizers | Core suite under ASan+UBSan and under TSan; the whole JUCE integration suite (GUI, processor, plugin, IO) under ASan+UBSan |
 | Plugin validation | pluginval at strictness 5 on the VST3: **SUCCESS**; scripted CLAP host probe: **PASS** |
 
 ## 2. Acceptance criteria (spec/REVERSEBACK_V1.md section 7)
@@ -60,14 +60,15 @@ This document says what is implemented, what evidence exists for each acceptance
 
 | Check | Result |
 | --- | --- |
-| Core tests, Release | 69 / 69 pass |
-| Core tests, ASan + UBSan | pass |
-| Core tests, TSan | pass |
-| Integration tests, Release (`xvfb-run`) | 34 / 34 pass |
-| Integration tests, ASan + UBSan (JUCE build) | see the audit section below |
+| Core tests, Release | 86 / 86 pass |
+| Core tests, ASan + UBSan | 86 / 86 pass |
+| Core tests, TSan | 86 / 86 pass |
+| Integration tests, Release (`xvfb-run`) | 50 / 50 pass |
+| Integration tests, ASan + UBSan (JUCE build, `xvfb-run`) | 50 / 50 pass, no reports |
 | pluginval strictness 5 (VST3) | SUCCESS |
 | CLAP probe | PASS |
 | `ldd` on every binary | nothing missing; only ALSA, X11, FreeType, fontconfig, GL, libc/libstdc++ |
+| GitHub Actions on the PR head | Linux build + tests + validation + packaging, core release / ASan+UBSan / TSan: green. Windows job: first run failed at configure (runner generator), fixed, re-run pending |
 | Standalone `--selftest` (offline engine check without display or device) | PASS |
 | Debian package builds (`dpkg-deb`), per-user installer and uninstaller | Exercised in a scratch HOME |
 
@@ -87,6 +88,42 @@ This document says what is implemented, what evidence exists for each acceptance
 - Disk-backed (large) files are played from a prefetching cache; random access into a cold region pauses playback with an "underrun" status until the cache is primed rather than blocking the audio thread.
 - Supported formats are WAV, AIFF and FLAC, mono or stereo, up to 192 kHz and 30 minutes. MP3/AAC are future work.
 
-## 7. Audit
+## 7. Pre-release audit
 
-The audit section is appended after the review pass (see the next commit).
+Three independent reviewers read the code (real-time safety and threading; DSP and transport correctness; file I/O, processor, GUI and standalone). Each finding was treated as a claim: reproduced or traced, fixed, and covered by a regression test that fails on the old code. An ASan build of the GUI/plugin tests also found one bug by itself (editor destruction order). About 50 defects were fixed; the test counts above include the 30+ regression tests added for them.
+
+**Fixed (with regression tests)**
+
+| Area | Defect | Effect before the fix |
+| --- | --- | --- |
+| Real-time | Commands the engine rejected (double Start, wrong mode, bypass) were freed on the audio thread | Up to 88 MiB `free()` in the audio callback |
+| Real-time | Retire/event queues dropped or freed on overflow | Lost `TakeCompleted`; audio-thread frees when the UI thread stalled |
+| Threading | `prepareToPlay` could run while `processBlock` was running (VST3/CLAP hosts) | Races on queues/snapshot, use-after-free reproduced under ASan, possible hang |
+| Threading | `getStateInformation` read the file state while the UI thread replaced it | Possible use-after-free in a host save |
+| Export | Exporting any disk-backed file (over 256 MiB decoded) failed on the first cache miss | "Save WAV" always failed for long files |
+| Export | An existing file could be replaced without the Replace question when PCM would also clip; replace was unlink + rename | Silent overwrite / lost file on failure |
+| Export | Decision buttons destroyed their own click handler | Use-after-free on every clip/replace choice |
+| Export | Question layout overlapped; Cancel left the sheet disabled | Unusable dialog states |
+| Engine | Repeat Session stayed armed after a cancel or re-prepare; stale/undersized spare buffers were used | Microphone capture started by itself; short takes |
+| Engine | Finish Early under 50 ms cancelled the capture (spec: ignored); undersized take buffers truncated silently | Lost takes |
+| Engine | Ping-pong leaked its flipped direction; direction/speed/restart requests near a pass end were lost; selection change cut the audio | Wrong direction, dead controls, clicks |
+| Engine | Limiter release stalled at 0.9999 forever and could exceed the ceiling by rounding | Permanent -0.001 dB, "never exceeds -1 dBFS" false |
+| Engine | Live Stop/Resume tails ignored the chunk edge fades; fade changes landed mid-chunk | Clicks |
+| Engine | Missing second input plane crashed the engine | Crash for a malformed host buffer |
+| Disk cache | Prefetch thread spun at 100 % CPU when a block could not be loaded; condvar notify on the audio thread | Burned a core; priority inversion |
+| Disk cache | Cleanup deleted live caches (Windows always, Linux by age) and never ran in plugins | Playback underruns / leaked caches |
+| Processor | A file loaded while no device ran was shown but never reached the engine; Start pressed twice queued two takes; bypass left stale UI state and piled up commands; a trigger parameter left high started recording after a device restart | "Play does nothing", phantom recordings |
+| Input hardening | NaN in state/settings, 100 000-deep JSON/XML, decoder exceptions | Crash on hostile or corrupt files |
+| Settings | Several instances overwrote each other's presets; a newer settings file was rewritten and lost fields | Lost presets |
+| UI | Volume control had zero width at the 820 px minimum; Shift+Arrow never worked; shortcut keys fired on OS key repeat; Tab left a sheet; the device banner replaced other messages every 33 ms; clock rounding, junk time input, arrow steps, toast time, hold key conflicts, accessible names | See `AuditTests`/`GuiTests` |
+
+**Found by the sanitizer run, not by review:** the editor destroyed a slider before the parameter attachment that listened to it (use-after-free when any host closes the window).
+
+**Known and accepted for the beta**
+
+- Playing a disk-backed file waits up to 400 ms on the message thread for the first cache blocks; stopping a load or export joins its worker (bounded, 10 s).
+- Take memory budget counts only the retained take plus the one being requested; the Start gate keeps the number of queued takes to one.
+- The Advanced drawer remembers its tab globally rather than per mode; "follow system" reduced motion reads only the `REDUCE_MOTION` environment variable.
+- Segmented controls expose no accessibility role (labels are set on buttons and number fields); the meter description updates at the UI rate.
+- A truncated FLAC cannot be told from a complete one (the decoder zero-fills); truncated WAV/AIFF are detected.
+- Unreferenced leftovers: `LevelFollower` (dead code), `CaptureCancelled` reason code (unused).

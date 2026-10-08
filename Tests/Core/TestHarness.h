@@ -1,6 +1,12 @@
 // Minimal dependency-free test harness shared by the core and integration tests.
 #pragma once
 
+// The allocation counter replaces global operator new/delete, which fights with the sanitizers' own allocator
+// (and their checks make it redundant), so sanitizer builds run without it.
+#if (defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)) && ! defined(RB_NO_ALLOC_HOOK)
+ #define RB_NO_ALLOC_HOOK 1
+#endif
+
 #include <atomic>
 #include <cmath>
 #include <cstdio>
