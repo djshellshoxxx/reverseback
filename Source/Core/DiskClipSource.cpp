@@ -6,7 +6,7 @@
 namespace rb
 {
 // ------------------------------------------------------------------ DiskCacheWriter
-bool DiskCacheWriter::open (const std::string& path, int channels)
+bool DiskCacheWriter::open (const std::filesystem::path& path, int channels)
 {
     channels_ = channels;
     zeroPad_.assign (kBlockFrames, 0.0f);
@@ -37,7 +37,7 @@ bool DiskCacheWriter::finish()
 }
 
 // ------------------------------------------------------------------ DiskClipSource
-std::shared_ptr<DiskClipSource> DiskClipSource::open (const std::string& path, double sampleRate, int channels, Frame frames)
+std::shared_ptr<DiskClipSource> DiskClipSource::open (const std::filesystem::path& path, double sampleRate, int channels, Frame frames)
 {
     if (channels < 1 || channels > static_cast<int> (kMaxChannels) || frames == 0)
         return nullptr;
@@ -70,7 +70,7 @@ DiskClipSource::~DiskClipSource()
     {
         std::error_code ec;
         std::filesystem::remove (path_, ec);
-        std::filesystem::remove (std::filesystem::path (path_).parent_path(), ec);   // only succeeds if the directory is empty
+        std::filesystem::remove (path_.parent_path(), ec);   // only succeeds if the directory is empty
     }
 }
 

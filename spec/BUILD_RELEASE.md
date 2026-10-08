@@ -8,7 +8,7 @@ Settles the open items from `REVERSEBACK_V1.md` §5.1 ("pin an exact compatible 
 | --- | --- | --- | --- |
 | JUCE | tag `8.0.15` (git) | device I/O, GUI, file formats, plugin wrappers | **AGPLv3** (JUCE is dual-licensed AGPLv3 / commercial; JUCE 9.x has the same structure) |
 | clap-juce-extensions | commit `7adee3a1bd4684d4caa5601100e364abccff4b4d` (0.26.0 + 117 commits; the 0.26.0 tag predates JUCE 8.0.11 and does not compile against JUCE 8.0.15) with its pinned `clap` and `clap-helpers` submodules | CLAP wrapper | MIT |
-| VST3 SDK | bundled inside JUCE 8.0.15 | VST3 wrapper | per JUCE (GPLv3 path) |
+| VST3 SDK | 3.8, bundled inside JUCE 8.0.15 | VST3 wrapper | MIT (Steinberg) |
 | Inter font | 4.0 (embedded TTF/OTF subset) | UI typography | SIL OFL 1.1 |
 
 **Licensing decision.** The ReverseBack source authored by Circuit Drift Labs remains MIT (`LICENSE`). Because the binaries link JUCE under its AGPLv3 option, **the compiled beta binaries are distributed under AGPL-3.0-or-later terms** and must be accompanied by the complete corresponding source (the repository at the release tag) and the third-party notices (`THIRD_PARTY_LICENSES.md`). Shipping closed-source binaries, or binaries under other terms, requires a commercial JUCE licence; changing that is the owner's decision and does not affect the engine, which has no JUCE dependency. The "VST" name is a trademark of Steinberg Media Technologies GmbH; the beta does not use the VST logo.

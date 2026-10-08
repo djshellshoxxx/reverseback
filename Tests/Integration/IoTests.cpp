@@ -6,7 +6,13 @@
 #include "SettingsStore.h"
 #include "TestUtil.h"
 
-#include <unistd.h>
+#if JUCE_WINDOWS
+ #include <process.h>
+ #define rb_getpid _getpid
+#else
+ #include <unistd.h>
+ #define rb_getpid getpid
+#endif
 
 using namespace rbt;
 
@@ -159,7 +165,7 @@ RB_TEST (startup_cleanup_removes_only_abandoned_caches)
 {
     TempDir t;
     const auto dead = t.file ("ReverseBack-cache-99999999-abcd");
-    const auto alive = t.file ("ReverseBack-cache-" + juce::String (static_cast<int> (getpid())) + "-feed");
+    const auto alive = t.file ("ReverseBack-cache-" + juce::String (static_cast<int> (rb_getpid())) + "-feed");
     const auto other = t.file ("not-ours");
     dead.createDirectory();
     alive.createDirectory();

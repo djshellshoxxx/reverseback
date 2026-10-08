@@ -1,5 +1,8 @@
 #include "FileService.h"
 
+#include <cstring>
+#include <filesystem>
+
 #if JUCE_WINDOWS
  #include <process.h>
 #else
@@ -30,6 +33,16 @@ bool processIsAlive (int pid)
     return false;   // cleaned up by age instead (see cleanupAbandonedCaches)
 #else
     return pid > 0 && (kill (pid, 0) == 0 || errno == EPERM);
+#endif
+}
+
+// Native (wide on Windows) path so non-ASCII user names work; the engine core takes std::filesystem paths.
+std::filesystem::path nativePath (const juce::File& f)
+{
+#if JUCE_WINDOWS
+    return std::filesystem::path (std::wstring (f.getFullPathName().toWideCharPointer()));
+#else
+    return std::filesystem::path (f.getFullPathName().toStdString());
 #endif
 }
 
@@ -149,7 +162,7 @@ LoadOutcome loadAudioFile (const juce::File& file, const LoadOptions& options, c
             if (! cacheDir.createDirectory().wasOk())
                 return fail (LoadError::DiskFull, describe (LoadError::DiskFull));
             cachePath = cacheDir.getChildFile ("pcm.f32");
-            if (! writer.open (cachePath.getFullPathName().toStdString(), channels))
+            if (! writer.open (nativePath (cachePath), channels))
             {
                 cleanupPartial();
                 return fail (LoadError::DiskFull, describe (LoadError::DiskFull));
@@ -220,7 +233,7 @@ LoadOutcome loadAudioFile (const juce::File& file, const LoadOptions& options, c
                 cleanupPartial();
                 return fail (LoadError::DiskFull, describe (LoadError::DiskFull));
             }
-            auto disk = DiskClipSource::open (cachePath.getFullPathName().toStdString(), rate, channels, frames);
+            auto disk = DiskClipSource::open (nativePath (cachePath), rate, channels, frames);
             if (disk == nullptr)
             {
                 cleanupPartial();

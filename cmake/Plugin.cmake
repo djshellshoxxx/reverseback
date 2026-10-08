@@ -79,6 +79,12 @@ clap_juce_extensions_plugin(TARGET ReverseBack
   CLAP_FEATURES audio-effect utility stereo
   CLAP_SUPPORT_URL "https://github.com/djshellshoxxx/reverseback")
 
+# Export only the format entry points from the plugin binaries (Linux; other platforms use their own mechanisms).
+if(UNIX AND NOT APPLE)
+  target_link_options(ReverseBack_CLAP PRIVATE "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/cmake/exports-clap.map")
+  target_link_options(ReverseBack_VST3 PRIVATE "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/cmake/exports-vst3.map")
+endif()
+
 # ---------------------------------------------------------------- integration tests
 if(RB_BUILD_TESTS)
   file(GLOB RB_INTEGRATION_SOURCES CONFIGURE_DEPENDS Tests/Integration/*.cpp)

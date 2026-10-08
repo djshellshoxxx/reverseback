@@ -2,8 +2,10 @@
 #include "DiskClipSource.h"
 #include "TestUtil.h"
 
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <thread>
 
 using namespace rbt;
 
@@ -123,7 +125,9 @@ RB_TEST (disk_source_concurrent_reads_while_prefetching_are_consistent)
     float* dst[2] = { a.data(), b.data() };
     Frame pos = 0;
     long reads = 0, bad = 0;
-    for (int iter = 0; iter < 4000; ++iter)
+    // Bounded by time, not iterations: on a loaded machine the prefetch thread may be slow to get going.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds (20);
+    while (reads < 400 && std::chrono::steady_clock::now() < deadline)
     {
         if (src->read (static_cast<std::int64_t> (pos), 2048, dst))
         {
@@ -134,9 +138,9 @@ RB_TEST (disk_source_concurrent_reads_while_prefetching_are_consistent)
         else
         {
             src->hint (pos, false);
-            std::this_thread::yield();
+            std::this_thread::sleep_for (std::chrono::microseconds (200));
         }
     }
-    CHECK (reads > 100);
+    CHECK (reads >= 400);
     CHECK_EQ (bad, 0L);
 }

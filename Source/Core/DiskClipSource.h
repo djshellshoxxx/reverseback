@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <filesystem>
 #include <fstream>
 #include <mutex>
 #include <string>
@@ -22,7 +23,7 @@ class DiskCacheWriter
 public:
     static constexpr std::size_t kBlockFrames = 65536;
 
-    bool open (const std::string& path, int channels);
+    bool open (const std::filesystem::path& path, int channels);
     // `planes[c]` hold `validFrames` (<= kBlockFrames) samples each. Returns false on a write error (disk full).
     bool appendBlock (const float* const* planes, std::size_t validFrames);
     bool finish();
@@ -40,7 +41,7 @@ public:
     static constexpr std::size_t kSlots = 16;
     static constexpr std::int64_t kAhead = 6;
 
-    static std::shared_ptr<DiskClipSource> open (const std::string& path, double sampleRate, int channels, Frame frames);
+    static std::shared_ptr<DiskClipSource> open (const std::filesystem::path& path, double sampleRate, int channels, Frame frames);
     ~DiskClipSource() override;
 
     int channels() const noexcept override { return channels_; }
@@ -72,7 +73,7 @@ private:
     bool blockResident (std::int64_t block) const noexcept;
     void noteMiss (std::int64_t block, std::int64_t dir) const noexcept;
 
-    std::string path_;
+    std::filesystem::path path_;
     double rate_ = 48000.0;
     int channels_ = 1;
     Frame frames_ = 0;
