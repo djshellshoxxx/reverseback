@@ -9,7 +9,7 @@ This document says what is implemented, what evidence exists for each acceptance
 | Engine (Record & Reverse, Live Reverse, Reverse File, resampler, limiter, triggers, presets, disk-backed clips) | Implemented, framework-free (`Source/Core`) |
 | JUCE layer (processor, 24 parameters, state, file import, export, settings) | Implemented |
 | GUI (three modes, advanced drawer, waveform, sheets, presets menu, shortcuts, drag and drop) | Implemented, screenshots in `docs/screenshots` |
-| Formats | Standalone, VST3, CLAP (Linux x86_64 built and validated); Windows defined in CI only |
+| Formats | Standalone, VST3, CLAP. Linux x86_64: built, validated and packaged here and in CI. Windows x86_64 (MSVC 2022): built and tested in CI, zips produced; never run by a person |
 | Tests | 86 core tests (221 323 checks) and 50 integration tests (22 277 checks) |
 | Sanitizers | Core suite under ASan+UBSan and under TSan; the whole JUCE integration suite (GUI, processor, plugin, IO) under ASan+UBSan |
 | Plugin validation | pluginval at strictness 5 on the VST3: **SUCCESS**; scripted CLAP host probe: **PASS** |
@@ -68,14 +68,14 @@ This document says what is implemented, what evidence exists for each acceptance
 | pluginval strictness 5 (VST3) | SUCCESS |
 | CLAP probe | PASS |
 | `ldd` on every binary | nothing missing; only ALSA, X11, FreeType, fontconfig, GL, libc/libstdc++ |
-| GitHub Actions on the PR head | Linux build + tests + validation + packaging, core release / ASan+UBSan / TSan: green. Windows job: first run failed at configure (runner generator), fixed, re-run pending |
+| GitHub Actions on the final head (`533e449`) | **All jobs green**: core release / ASan+UBSan / TSan, GUI+plugin tests under ASan+UBSan, Linux (build, tests under Xvfb, validation script, packaging), Windows (MSVC 2022 build of Standalone/VST3/CLAP, all core and integration tests, zips). Artifacts `linux-x86_64` and `windows-x86_64` were uploaded |
 | Standalone `--selftest` (offline engine check without display or device) | PASS |
 | Debian package builds (`dpkg-deb`), per-user installer and uninstaller | Exercised in a scratch HOME |
 
 ## 5. Not verified (please test)
 
 - **Real audio hardware.** The build environment has no sound card or microphone. Latency, glitching, device hot-plug and rate-change behaviour on real ALSA/JACK/PipeWire devices are untested; the engine is exercised through simulated callbacks only.
-- **Windows.** The code avoids POSIX-only constructs and `.github/workflows/ci.yml` defines an MSVC job, but that job has not run. No Windows binary exists yet.
+- **Windows at runtime.** CI builds the Windows binaries and runs the 86 core and 50 integration tests there, but nobody has launched the Windows standalone, opened a real audio device on Windows, or loaded the VST3/CLAP in a Windows DAW. pluginval and the CLAP probe have only been run on Linux. The Windows zips are not code-signed (SmartScreen will warn).
 - **macOS.** Out of scope for the beta.
 - **DAWs.** No Reaper/Bitwig/Ardour or other host has loaded the plugins. pluginval and the CLAP probe are the only host-side checks.
 - **GUI on a real desktop.** Layout and behaviour were checked under Xvfb with screenshots; high-DPI scaling, Wayland and the platform file/colour dialogs have not been tried.

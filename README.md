@@ -1,6 +1,6 @@
 # ReverseBack
 
-A playful local audio toy for reversing your voice, live audio chunks and audio files. Runs as a **standalone app**, a **VST3** effect and a **CLAP** effect (Linux x86_64 first; a Windows build is defined in CI).
+A playful local audio toy for reversing your voice, live audio chunks and audio files. Runs as a **standalone app**, a **VST3** effect and a **CLAP** effect (Linux x86_64 and Windows x86_64 builds are produced by CI; the Linux build is the one that has been validated end to end).
 
 **Status: beta (`0.1.0-beta.1`).** All three modes, the full GUI, export, presets and settings are implemented and tested. See [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) for exactly what has and has not been verified.
 
