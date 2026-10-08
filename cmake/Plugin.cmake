@@ -56,7 +56,6 @@ target_compile_definitions(ReverseBack PUBLIC
   JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1
   $<$<PLATFORM_ID:Linux>:JUCE_ALSA=1>   # audio back-ends that exist only on Linux (JACK headers do not on Windows)
   $<$<PLATFORM_ID:Linux>:JUCE_JACK=1>
-  JUCE_MODAL_LOOPS_PERMITTED=0
   RB_VERSION_STRING="${RB_VERSION_STRING}")
 
 # MSVC: padding caused by the cache-line alignment of the queue counters is intended
