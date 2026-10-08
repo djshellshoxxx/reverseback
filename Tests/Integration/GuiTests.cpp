@@ -1,6 +1,9 @@
 // A16, A08 (GUI), P12: the real editor driven through its components, plus the screenshot harness.
 #include "ProcHarness.h"
 #include "ReverseBackEditor.h"
+#include "Sheets.h"
+#include "Theme.h"
+#include "TestUtil.h"
 
 using namespace rbt;
 using RS = rb::RecordTransport::State;
@@ -354,3 +357,120 @@ RB_TEST (screenshots_of_every_mode_and_sheet)
     CHECK (true);
 }
 
+
+RB_TEST (audit_export_sheet_decision_buttons_survive_being_clicked)
+{
+    ProcHarness h (48000.0, 512);
+    rb::ExportSource src;
+    src.source = rbt::makeSineClip (48000.0, 24000, 440.0, 1.6);
+    src.selection = { 0, 24000 };
+    src.channels = 1;
+    src.suggestedName = "test";
+    for (int which = 0; which < 2; ++which)
+    {
+        rb::ui::ExportSheet sheet (*h.p, src);
+        sheet.setBounds (0, 0, 560, 440);
+        rb::ExportOutcome o;
+        o.error = which == 0 ? rb::ExportError::WouldClip : rb::ExportError::DestinationExists;
+        o.message = "A question for the user.";
+        sheet.simulateOutcomeForTest (o);
+        pump (20);
+        CHECK (sheet.getNumChildComponents() > 0);
+        // the decision buttons are added last; the layout gives the question the whole card
+        auto* last = dynamic_cast<juce::Button*> (sheet.getChildComponent (sheet.getNumChildComponents() - 1));
+        CHECK (last != nullptr);
+        if (last != nullptr)
+        {
+            CHECK (last->isShowing() || last->getWidth() > 0);
+            clickAndPump (*last);   // used to destroy the button (and its own closure) while it was running
+            pump (200);
+        }
+    }
+}
+
+RB_TEST (audit_options_row_fits_at_the_minimum_window_size_in_every_mode)
+{
+    GuiRig g;
+    using namespace rb::ui;
+    g.ed->setBounds (0, 0, 820, 620);
+    for (int mode = 0; mode < 3; ++mode)
+    {
+        g.h.set ("mode", mode);
+        g.settle();
+        g.ed->setBounds (0, 0, 820, 620);   // layout again for the mode
+        auto& volume = g.ctl<NumberField> ("volume");
+        auto& advanced = g.ctl<juce::Component> ("advancedToggle");
+        auto& direction = g.ctl<SegmentedControl> ("direction");
+        auto& loop = g.ctl<SegmentedControl> ("loop");
+        CHECK (volume.getWidth() >= 80);             // used to be 0 px wide
+        CHECK (advanced.getWidth() >= 100);
+        CHECK (g.ed->getLocalBounds().contains (volume.getBounds()));
+        CHECK (g.ed->getLocalBounds().contains (advanced.getBounds()));
+        CHECK (! direction.getBounds().intersects (loop.getBounds()));
+        CHECK (! loop.getBounds().intersects (volume.getBounds()));
+        CHECK (! volume.getBounds().intersects (advanced.getBounds()));
+        CHECK (direction.getWidth() >= 190 && loop.getWidth() >= 220);   // still readable
+    }
+}
+
+RB_TEST (audit_sheets_keep_keyboard_focus_inside_the_sheet)
+{
+    juce::Component parent;
+    parent.setBounds (0, 0, 900, 700);
+    juce::TextButton under ("under the scrim");
+    under.setWantsKeyboardFocus (true);
+    parent.addAndMakeVisible (under);
+    rb::ui::SheetHost host;
+    parent.addAndMakeVisible (host);
+    host.setBounds (parent.getLocalBounds());
+    host.show (std::make_unique<rb::ui::PromptSheet> ("Save preset", "Name", "My preset", "Save", [] (const juce::String&) {}));
+
+    std::function<void (juce::Component&)> visit = [&] (juce::Component& c)
+    {
+        if (c.getWantsKeyboardFocus() && &c != &host)
+            CHECK (c.findFocusContainer() == &host);   // Tab can never reach "under the scrim"
+        for (auto* child : c.getChildren())
+            visit (*child);
+    };
+    visit (host);
+    CHECK (host.findFocusContainer() != &host);
+}
+
+RB_TEST (audit_time_text_helpers_round_and_reject_garbage)
+{
+    using namespace rb::ui;
+    CHECK_EQ (fmtClock (0.99996, true), juce::String ("0:01.000"));    // used to print 0:00.000
+    CHECK_EQ (fmtClock (59.9996, true), juce::String ("1:00.000"));
+    CHECK_EQ (fmtClock (61.25, true), juce::String ("1:01.250"));
+    CHECK_EQ (fmtClock (61.6, false), juce::String ("1:02"));
+    CHECK_NEAR (parseSeconds ("abc", 3.5), 3.5, 1e-12);                 // junk keeps the old value instead of 0
+    CHECK_NEAR (parseSeconds ("", 3.5), 3.5, 1e-12);
+    CHECK_NEAR (parseSeconds ("1:30", 0.0), 90.0, 1e-9);
+    CHECK_NEAR (parseSeconds ("250ms", 0.0), 0.25, 1e-9);
+}
+
+RB_TEST (audit_arrow_keys_step_the_length_fields_by_the_specified_amounts)
+{
+    GuiRig g;
+    using namespace rb::ui;
+    auto& capture = g.ctl<NumberField> ("capture");
+    capture.setValue (5.0, juce::sendNotificationSync);
+    capture.keyPressed (juce::KeyPress (juce::KeyPress::upKey));
+    CHECK_NEAR (capture.getValue(), 5.05, 1e-6);                        // V1 4.2: 0.05 s steps
+    capture.keyPressed (juce::KeyPress (juce::KeyPress::downKey, juce::ModifierKeys::shiftModifier, 0));
+    CHECK_NEAR (capture.getValue(), 4.55, 1e-6);                        // Shift: x10
+    auto& chunk = g.ctl<NumberField> ("chunk");
+    chunk.setValue (0.5, juce::sendNotificationSync);
+    chunk.keyPressed (juce::KeyPress (juce::KeyPress::upKey));
+    CHECK_NEAR (chunk.getValue(), 0.51, 1e-6);                          // 0.01 s
+}
+
+RB_TEST (audit_captions_stay_at_the_default_width_and_go_only_when_the_window_is_narrow)
+{
+    GuiRig g;   // 960 px: the designed layout keeps the Direction / Loop captions
+    using namespace rb::ui;
+    g.ed->setBounds (0, 0, 960, 700);
+    CHECK (g.ctl<juce::Label> ("directionLabel").isVisible());
+    g.ed->setBounds (0, 0, 820, 620);
+    CHECK (! g.ctl<juce::Label> ("directionLabel").isVisible());
+}

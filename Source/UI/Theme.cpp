@@ -1,5 +1,7 @@
 #include "Theme.h"
 
+#include <cmath>
+
 #include <BinaryData.h>
 
 namespace rb::ui
@@ -313,11 +315,13 @@ juce::String fmtMillis (double seconds) { return juce::String (juce::roundToInt 
 juce::String fmtClock (double seconds, bool millis)
 {
     seconds = std::max (0.0, seconds);
-    const int total = static_cast<int> (seconds);
-    const int m = total / 60, s = total % 60;
+    // Round once, then split: 0.99996 s is 0:01.000, never "0:00.1000" or "0:00.000".
+    const juce::int64 units = millis ? static_cast<juce::int64> (std::llround (seconds * 1000.0)) : static_cast<juce::int64> (std::llround (seconds));
+    const juce::int64 total = millis ? units / 1000 : units;
+    const int m = static_cast<int> (total / 60), s = static_cast<int> (total % 60);
     juce::String out = juce::String (m) + ":" + juce::String (s).paddedLeft ('0', 2);
     if (millis)
-        out += "." + juce::String (juce::roundToInt ((seconds - total) * 1000.0) % 1000).paddedLeft ('0', 3);
+        out += "." + juce::String (static_cast<int> (units % 1000)).paddedLeft ('0', 3);
     return out;
 }
 
@@ -331,6 +335,8 @@ double parseSeconds (const juce::String& textIn, double fallback)
     juce::String t = textIn.trim().toLowerCase();
     if (t.isEmpty())
         return fallback;
+    if (t.retainCharacters ("0123456789").isEmpty())
+        return fallback;   // "abc" is not a time: keep the old value instead of silently jumping to zero
     if (t.contains (":"))   // m:ss(.mmm)
     {
         const double m = t.upToFirstOccurrenceOf (":", false, false).getDoubleValue();

@@ -514,6 +514,11 @@ ReverseBackEditor::ReverseBackEditor (ReverseBackProcessor& p)
     attach (delay_, ids::delay, NumberField::Kind::Seconds, 2);
     attach (volume_, ids::outVol, NumberField::Kind::Db, 1);
     volume_.setComponentID ("volume");
+    dirLabel_.setComponentID ("directionLabel");
+    capture_.setArrowStep (0.05);
+    wait_.setArrowStep (0.05);
+    delay_.setArrowStep (0.05);
+    chunk_.setArrowStep (0.01);
     capture_.setTooltip ("How long to record (0.25 to 60 s). Applies to the next recording.");
     wait_.setTooltip ("Silence before playback starts (0 to 30 s).");
     chunk_.setTooltip ("Live Reverse reverses each chunk of this length (0.1 to 5 s).");
@@ -762,18 +767,42 @@ void ReverseBackEditor::layoutOptions (juce::Rectangle<int> row, Mode)
 {
     const int h = 40;
     row = row.withSizeKeepingCentre (row.getWidth(), h);
-    advancedToggle_.setBounds (row.removeFromRight (136));
-    auto place = [&row, h] (juce::Label& l, juce::Component& c, int cw)
+    constexpr int dirW = 206, loopW = 236;
+    const int dirLabelW = textWidth (dirLabel_), loopLabelW = textWidth (loopLabel_), volLabelW = textWidth (volumeLabel_);
+    // Natural layout first; when the window is narrow the Direction/Loop captions go (the controls name
+    // themselves), then Advanced and the volume field shrink. At the 820 px minimum everything still fits.
+    constexpr int gap = 16;
+    const int natural = (dirLabelW + 8 + dirW + gap) + (loopLabelW + 8 + loopW + gap) + (volLabelW + 8 + 104) + 136;
+    const bool captions = natural <= row.getWidth();
+    int advW = 136, volW = 104;
+    if (! captions)
     {
-        const int lw = textWidth (l);
-        l.setBounds (row.removeFromLeft (lw));
-        row.removeFromLeft (8);
+        const int needed = (dirW + gap) + (loopW + gap) + (volLabelW + 8 + volW) + advW;
+        if (needed > row.getWidth())
+        {
+            advW = 112;
+            volW = 92;
+        }
+    }
+    dirLabel_.setVisible (captions);
+    loopLabel_.setVisible (captions);
+
+    advancedToggle_.setBounds (row.removeFromRight (advW));
+    auto place = [&row, h] (juce::Label* l, int labelW, juce::Component& c, int cw)
+    {
+        if (l != nullptr)
+        {
+            l->setBounds (row.removeFromLeft (labelW));
+            row.removeFromLeft (8);
+        }
         c.setBounds (row.removeFromLeft (cw).withHeight (h));
-        row.removeFromLeft (22);
+        row.removeFromLeft (gap);
     };
-    place (dirLabel_, direction_, 206);
-    place (loopLabel_, loop_, 236);
-    place (volumeLabel_, volume_, 112);
+    place (captions ? &dirLabel_ : nullptr, dirLabelW, direction_, dirW);
+    place (captions ? &loopLabel_ : nullptr, loopLabelW, loop_, loopW);
+    volumeLabel_.setBounds (row.removeFromLeft (volLabelW));
+    row.removeFromLeft (8);
+    volume_.setBounds (row.removeFromLeft (volW).withHeight (h));
 }
 
 void ReverseBackEditor::resized()
@@ -1112,11 +1141,10 @@ void ReverseBackEditor::updateWaveform (const Snapshot& s, Mode m)
             lastTakeVersion_ = ~0u;
             ++waveVersion_;
         }
-        static std::uint32_t lastTrimMarker = 0;
         const std::uint32_t trimMarker = take ? static_cast<std::uint32_t> (take->trim.begin * 31u + take->trim.end) : 0;
-        if (trimMarker != lastTrimMarker)
+        if (trimMarker != lastTrimMarker_)
         {
-            lastTrimMarker = trimMarker;
+            lastTrimMarker_ = trimMarker;
             ++waveVersion_;
         }
         w.version = waveVersion_;
@@ -1176,6 +1204,7 @@ void ReverseBackEditor::updateWaveform (const Snapshot& s, Mode m)
         if (proc_.fileVersion() != lastFileVersion_)
         {
             lastFileVersion_ = proc_.fileVersion();
+            preTrimSelection_ = {};   // "Undo trim" must never restore the frame range of a previous file
             ++waveVersion_;
         }
         w.version = waveVersion_;
@@ -1644,6 +1673,13 @@ bool ReverseBackEditor::keyPressed (const juce::KeyPress& k)
         return false;
     const auto mods = k.getModifiers();
     const int code = k.getKeyCode();
+    // Holding a shortcut key makes the OS repeat it: only the first press may act (otherwise Space would
+    // start and stop a recording over and over, discarding the take).
+    if (heldShortcutKeys_.count (std::tolower (code)) != 0 && juce::KeyPress::isKeyCurrentlyDown (code))
+        return true;
+    if (code == juce::KeyPress::spaceKey || code == juce::KeyPress::escapeKey || std::tolower (code) == 'r' || std::tolower (code) == 'f'
+        || ((mods.isCommandDown() || mods.isCtrlDown()) && (std::tolower (code) == 'o' || std::tolower (code) == 's')))
+        heldShortcutKeys_.insert (std::tolower (code));
     if (mods.isCommandDown() || mods.isCtrlDown())
     {
         if (code == 'o' || code == 'O')
@@ -1665,7 +1701,9 @@ bool ReverseBackEditor::keyPressed (const juce::KeyPress& k)
     }
     if (code == juce::KeyPress::escapeKey)
     {
-        if (proc_.isBusy())
+        if (proc_.isLoadingFile())
+            proc_.cancelLoad();
+        else if (proc_.isBusy())
             proc_.actionStop();
         else if (advancedOpen_)
             setAdvancedOpen (false);
@@ -1695,6 +1733,8 @@ bool ReverseBackEditor::keyPressed (const juce::KeyPress& k)
 
 bool ReverseBackEditor::keyStateChanged (bool)
 {
+    for (auto it = heldShortcutKeys_.begin(); it != heldShortcutKeys_.end();)
+        it = juce::KeyPress::isKeyCurrentlyDown (*it) ? std::next (it) : heldShortcutKeys_.erase (it);
     if (holdKeyDown_ && ! juce::KeyPress::isKeyCurrentlyDown (holdKeyCode_))
         releaseHold();
     return false;

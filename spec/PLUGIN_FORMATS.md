@@ -110,7 +110,7 @@ Custom JUCE standalone (`JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP`): a single resiz
 | P06 | Block sizes 1, 7, 64, 513, 8192 and changing block size between calls give identical timelines | `PluginTests` |
 | P07 | `prepareToPlay` with a new rate stops transports, keeps the take, plays it at the new rate | `PluginTests` |
 | P08 | Bypass during recording cancels capture, keeps prior take, no output afterwards | `PluginTests` |
-| P09 | Reported latency 0 in plugin builds | `PluginTests` |
+| P09 | Reported latency 0 in plugin builds; tail length infinite (output is generated without input) | `PluginTests` |
 | P10 | pluginval strictness 5 (VST3) passes; CLAP binary exports a valid `clap_entry` and descriptor | release checklist |
 | P11 | Offline (non-realtime) render of a scripted Record cycle equals the real-time-style block run | `PluginTests` |
 | P12 | Editor opens, resizes between min and max, and closes repeatedly without leaks or crashes | `GuiTests` under Xvfb |

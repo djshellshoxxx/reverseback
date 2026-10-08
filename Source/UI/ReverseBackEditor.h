@@ -1,6 +1,8 @@
 // The ReverseBack editor shared by the Standalone, VST3 and CLAP builds (GUI_DESIGN.md).
 #pragma once
 
+#include <set>
+
 #include "ReverseBackProcessor.h"
 #include "Sheets.h"
 #include "WaveformView.h"
@@ -112,6 +114,8 @@ private:
     bool modeLaidOut_ = false;
     bool advancedOpen_ = false;
     bool holdKeyDown_ = false, holdMouseDown_ = false, holdIsFinishEarly_ = false;
+    std::set<int> heldShortcutKeys_;   // keys whose press was already handled: OS key repeat must not act again
+    std::uint32_t lastTrimMarker_ = 0;
     int holdKeyCode_ = 'h';
     bool shortcutsEnabled_ = true;
     std::uint64_t waveVersion_ = 1;

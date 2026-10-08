@@ -7,6 +7,7 @@ SheetHost::SheetHost() : closeButton_ ("Close sheet")
 {
     setInterceptsMouseClicks (true, true);
     setWantsKeyboardFocus (true);
+    setFocusContainerType (juce::Component::FocusContainerType::keyboardFocusContainer);   // Tab stays inside the sheet
     closeButton_.setStyle (ActionButton::Style::Icon);
     closeButton_.setIcon (Icon::Close);
     closeButton_.setTooltip ("Close (Esc)");
@@ -26,6 +27,16 @@ void SheetHost::show (std::unique_ptr<Sheet> sheet)
     setVisible (true);
     toFront (true);
     resized();
+    // Focus the first control of the sheet (the name field of a prompt, the first option of settings), so that
+    // typing goes there and a previously focused button under the scrim can no longer be triggered with Return.
+    if (auto traverser = createFocusTraverser())
+        if (auto* first = traverser->getDefaultComponent (this))
+            if (first != this && first != &closeButton_)
+            {
+                first->grabKeyboardFocus();
+                repaint();
+                return;
+            }
     grabKeyboardFocus();
     repaint();
 }
@@ -140,6 +151,11 @@ SettingsSheet::SettingsSheet (ReverseBackProcessor& p, std::function<void()> onP
     holdKey_.onTextChange = [this]
     {
         const auto t = holdKey_.getText().toLowerCase();
+        if (t == "r" || t == "f")   // those keys already mean Replay and Flip direction
+        {
+            holdKey_.setText (proc_.storedSettings().ui.holdKey, false);
+            return;
+        }
         if (t.isNotEmpty())
         {
             proc_.storedSettings().ui.holdKey = t;
@@ -269,7 +285,16 @@ ExportSheet::ExportSheet (ReverseBackProcessor& p, ExportSource src) : proc_ (p)
     cancel_.onClick = [this]
     {
         if (running_)
-            proc_.exporter().cancel(), running_ = false, bar_.setVisible (false), status_.setText ("Export cancelled.", juce::dontSendNotification), resized();
+        {
+            proc_.exporter().cancel();
+            running_ = false;
+            bar_.setVisible (false);
+            cancel_.setLabel ("Close");
+            status_.setText ("Export cancelled.", juce::dontSendNotification);
+            status_.setColour (juce::Label::textColourId, col::text2);
+            refresh();   // Save, format and rate become usable again
+            resized();
+        }
         else if (requestClose)
             requestClose();
     };
@@ -312,6 +337,28 @@ void ExportSheet::refresh()
 void ExportSheet::resized()
 {
     auto r = getLocalBounds();
+    // While a question is pending (replace? clip?) the message and its buttons get the whole card.
+    const bool asking = ! decisionButtons_.empty();
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &summary_, &format_, &rate_, &dither_, &normalise_, &exact_ })
+        c->setVisible (! asking);
+
+    auto bottom = r.removeFromBottom (52);
+    save_.setBounds (bottom.removeFromRight (160));
+    bottom.removeFromRight (10);
+    cancel_.setBounds (bottom.removeFromRight (120));
+
+    if (asking)
+    {
+        status_.setBounds (r.removeFromTop (110));
+        r.removeFromTop (6);
+        for (auto& b : decisionButtons_)
+        {
+            b->setBounds (r.removeFromTop (44).withWidth (std::min (r.getWidth(), 380)));
+            r.removeFromTop (8);
+        }
+        return;
+    }
+
     summary_.setBounds (r.removeFromTop (92));
     r.removeFromTop (6);
     format_.setBounds (r.removeFromTop (44));
@@ -323,20 +370,10 @@ void ExportSheet::resized()
     exact_.setBounds (r.removeFromTop (34));
     r.removeFromTop (8);
 
-    auto bottom = r.removeFromBottom (52);
-    save_.setBounds (bottom.removeFromRight (160));
-    bottom.removeFromRight (10);
-    cancel_.setBounds (bottom.removeFromRight (120));
     auto statusArea = r;
     if (running_)
         bar_.setBounds (statusArea.removeFromBottom (22));
-    int by = statusArea.getBottom() - 44;
-    for (auto it = decisionButtons_.rbegin(); it != decisionButtons_.rend(); ++it)
-    {
-        (*it)->setBounds (statusArea.getX(), by, std::min (statusArea.getWidth(), 360), 40);
-        by -= 46;
-    }
-    status_.setBounds (statusArea.withHeight (std::max (24, by - statusArea.getY() + 40)));
+    status_.setBounds (statusArea.withHeight (std::max (24, statusArea.getHeight())));
 }
 
 void ExportSheet::paint (juce::Graphics&) {}
@@ -378,10 +415,17 @@ void ExportSheet::decision (const juce::String& message, std::vector<std::pair<j
         {
             if (safe == nullptr)
                 return;
-            safe->decisionButtons_.clear();
-            safe->status_.setText ({}, juce::dontSendNotification);
-            f();
-            safe->resized();
+            // This closure belongs to the button being clicked, so the buttons must not be destroyed (and the
+            // action must not run from freed captures) until the click handler has returned.
+            juce::MessageManager::callAsync ([safe, action = f]
+            {
+                if (safe == nullptr)
+                    return;
+                safe->decisionButtons_.clear();
+                safe->status_.setText ({}, juce::dontSendNotification);
+                action();
+                safe->resized();
+            });
         };
         addAndMakeVisible (*b);
         decisionButtons_.push_back (std::move (b));

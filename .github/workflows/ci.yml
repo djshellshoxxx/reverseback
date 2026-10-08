@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, "claude/**"]
+    branches: [main]
     tags: ["v*"]
   pull_request:
 
@@ -70,6 +70,29 @@ jobs:
           name: linux-x86_64
           path: dist/*
           if-no-files-found: error
+
+  gui-asan:
+    name: GUI and plugin tests under ASan + UBSan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config \
+            libasound2-dev libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxcomposite-dev \
+            libfreetype-dev libfontconfig1-dev libgl1-mesa-dev libcurl4-openssl-dev libjack-jackd2-dev xvfb
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          "-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize=vptr"
+      - name: Build
+        run: cmake --build build -j --target rb_integration_tests
+      - name: Test
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: xvfb-run -a build/rb_integration_tests
 
   windows:
     name: Windows (Standalone, VST3, CLAP)

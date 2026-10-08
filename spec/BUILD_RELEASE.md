@@ -73,6 +73,7 @@ Compile flags: `-Wall -Wextra -Wpedantic -Wconversion` for `rb_core` (warnings a
 ## 6. CI (`.github/workflows/ci.yml`)
 
 - `core` (ubuntu-24.04): `RB_CORE_ONLY` build, CTest, ASan/UBSan job, TSan job.
+- `gui-asan` (ubuntu-24.04): the integration suite (GUI, processor, plugin, IO) built with ASan + UBSan and run under `xvfb-run`.
 - `linux` (ubuntu-24.04): full build, integration tests under `xvfb-run`, package, upload artifacts after tests pass.
 - `windows` (windows-latest, MSVC 2022): full build, tests, zip standalone/VST3/CLAP, upload artifacts after tests pass.
 - `release` (on tag `v*`, needs `linux` and `windows`): creates a GitHub release marked prerelease for `-beta` tags and attaches artifacts and `SHA256SUMS`.
@@ -80,7 +81,7 @@ Third-party actions are pinned by version. CI is configuration only until it has
 
 ## 7. Versioning and compatibility
 
-Semantic versions; pre-releases `-beta.N`. Plugin ids and parameter ids are frozen from the first beta (`PLUGIN_FORMATS.md` §5). Settings and state carry a `version` integer; readers accept older versions and ignore newer unknown fields.
+Semantic versions; pre-releases `-beta.N`. Plugin ids and parameter ids are frozen from the first beta (`PLUGIN_FORMATS.md` §5). Settings and state carry a `version` integer; readers accept older versions and ignore newer unknown fields. A `settings.json` written by a newer version is read leniently and the original is kept once as `settings.v<N>.bak` before this version rewrites the file; a corrupt file falls back to defaults and is kept as `settings.bad`. Plugin state XML never overwrites anything on disk.
 
 ## 8. Beta scope and honest limitations
 

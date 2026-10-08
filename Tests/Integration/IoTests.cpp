@@ -344,6 +344,18 @@ RB_TEST (A17_settings_roundtrip_corruption_and_future_versions)
     CHECK_NEAR (fut.userPresets[0].values.captureSeconds, 60.0, 1e-9);   // values are clamped into range
     CHECK_NEAR (fut.userPresets[0].values.speed, 2.0, 1e-9);
     CHECK_NEAR (fut.userPresets[0].values.liveChunkSeconds, 0.1, 1e-9);
+    CHECK (t.file ("settings.v9.bak").existsAsFile());   // our next save would drop the unknown fields: the original is kept
+    CHECK (t.file ("settings.v9.bak").loadFileAsString().contains ("future"));
+
+    // hostile input: NaN values and absurd nesting must neither crash nor leak NaN into the engine
+    t.file ("settings.json").replaceWithText (R"({"version": 1, "userPresets": [{"name": "N", "values": {"capture": "nan", "wait": "inf", "speed": "nan"}}]})");
+    const auto nan = store.load();
+    CHECK_EQ (nan.userPresets.size(), std::size_t { 1 });
+    CHECK (std::isfinite (nan.userPresets[0].values.captureSeconds) && nan.userPresets[0].values.captureSeconds > 0.0);
+    CHECK (std::isfinite (nan.userPresets[0].values.waitSeconds));
+    CHECK (std::isfinite (nan.userPresets[0].values.speed) && nan.userPresets[0].values.speed >= 0.25);
+    t.file ("settings.json").replaceWithText (juce::String::repeatedString ("[", 200000));
+    CHECK_EQ (store.load().userPresets.size(), std::size_t { 0 });   // refused by the structure check, no stack overflow
 }
 
 RB_TEST (audit_export_of_a_disk_backed_file_succeeds_in_both_directions)
@@ -374,4 +386,31 @@ RB_TEST (audit_export_of_a_disk_backed_file_succeeds_in_both_directions)
         }
         t.file ("export.wav").deleteFile();
     }
+}
+
+RB_TEST (audit_existing_destination_is_asked_about_before_any_clipping_question)
+{
+    TempDir t;
+    auto clip = rbt::makeSineClip (48000.0, 24000, 440.0, 1.6);   // would clip in 24-bit PCM
+    t.file ("keep.wav").replaceWithText ("precious");
+    auto req = makeRequest (clip, { 0, 24000 }, t.file ("keep.wav"));
+    req.settings.format = rb::ExportSettings::Format::Pcm24;
+
+    // Not allowed to overwrite yet: the caller must be asked about the existing file first.
+    auto first = rb::writeExport (req, nullptr);
+    CHECK (first.error == rb::ExportError::DestinationExists);
+    CHECK_EQ (t.file ("keep.wav").loadFileAsString(), juce::String ("precious"));
+
+    // Replace confirmed: now the clipping question comes up, and the file is still untouched.
+    req.overwrite = true;
+    auto second = rb::writeExport (req, nullptr);
+    CHECK (second.error == rb::ExportError::WouldClip);
+    CHECK_EQ (t.file ("keep.wav").loadFileAsString(), juce::String ("precious"));
+
+    // Both answered: the file is replaced in one step and no temporary file is left behind.
+    req.settings.normalize = true;
+    auto third = rb::writeExport (req, nullptr);
+    CHECK (third.ok());
+    CHECK (t.file ("keep.wav").getSize() > 1000);
+    CHECK_EQ (t.dir.findChildFiles (juce::File::findFiles, false, "*rb-tmp*").size(), 0);
 }

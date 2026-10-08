@@ -81,6 +81,8 @@ public:
     // Installs the display/parse functions (call after any parameter attachment, which overrides them).
     void configure (Kind kind, int decimals = 2);
     void setAccent (juce::Colour c) { setColour (juce::Slider::trackColourId, c); repaint(); }
+    // Step for the Up/Down/Left/Right keys (Shift: x10); 0 = the slider interval, at least 0.2 % of the range.
+    void setArrowStep (double step) noexcept { arrowStep_ = step; }
     bool keyPressed (const juce::KeyPress&) override;
     void parentHierarchyChanged() override { if (getParentComponent() != nullptr && ! lafRefreshed_) { lafRefreshed_ = true; sendLookAndFeelChange(); } }
     // True while the user is typing into the value box.
@@ -95,6 +97,7 @@ public:
 private:
     Kind kind_ = Kind::Plain;
     int decimals_ = 2;
+    double arrowStep_ = 0.0;
     bool lafRefreshed_ = false;
 };
 

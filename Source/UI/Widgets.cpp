@@ -6,6 +6,7 @@ namespace rb::ui
 ActionButton::ActionButton (const juce::String& name) : juce::Button (name)
 {
     setButtonText ({});   // juce::Button copies its name into the text; labels are set explicitly
+    setTitle (name);      // screen readers: icon-only buttons are announced by their name
     setWantsKeyboardFocus (true);
     setMouseClickGrabsKeyboardFocus (false);
     setRepaintsOnMouseActivity (false);
@@ -16,6 +17,8 @@ void ActionButton::setLabel (const juce::String& s)
     if (getButtonText() != s)
     {
         setButtonText (s);
+        if (s.isNotEmpty())
+            setTitle (s);   // the visible label is the better spoken name
         repaint();
     }
 }
@@ -273,6 +276,7 @@ bool SegmentedControl::keyPressed (const juce::KeyPress& k)
 // =============================================================================== NumberField
 NumberField::NumberField (const juce::String& name) : juce::Slider (name)
 {
+    setTitle (name);   // JUCE's slider accessibility handler does not fall back to the component name
     setSliderStyle (juce::Slider::LinearBar);
     setTextBoxStyle (juce::Slider::TextBoxLeft, false, 80, 20);
     setTextBoxIsEditable (true);
@@ -327,12 +331,14 @@ void NumberField::configure (Kind kind, int decimals)
 
 bool NumberField::keyPressed (const juce::KeyPress& k)
 {
-    const double step = std::max (getInterval(), (getMaximum() - getMinimum()) * 0.002) * (k.getModifiers().isShiftDown() ? 10.0 : 1.0);
-    if (k == juce::KeyPress::upKey || k == juce::KeyPress::rightKey)
+    const double base = arrowStep_ > 0.0 ? arrowStep_ : std::max (getInterval(), (getMaximum() - getMinimum()) * 0.002);
+    const double step = base * (k.getModifiers().isShiftDown() ? 10.0 : 1.0);
+    const int code = k.getKeyCode();   // not operator==: that also compares modifiers, which broke Shift+arrow
+    if (code == juce::KeyPress::upKey || code == juce::KeyPress::rightKey)
         setValue (getValue() + step, juce::sendNotificationSync);
-    else if (k == juce::KeyPress::downKey || k == juce::KeyPress::leftKey)
+    else if (code == juce::KeyPress::downKey || code == juce::KeyPress::leftKey)
         setValue (getValue() - step, juce::sendNotificationSync);
-    else if (k == juce::KeyPress::returnKey)
+    else if (code == juce::KeyPress::returnKey)
         showTextBox();
     else
         return false;

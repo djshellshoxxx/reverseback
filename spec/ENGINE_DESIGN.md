@@ -180,7 +180,7 @@ Built-ins [V1 §3]: Say Something (Record 5 s / 2 s / 1x), Tiny Syllables (Live 
 
 ## 13. Persistence (`SettingsStore`)
 
-JSON, `{"version": 1, ...}` at the platform user-config directory (`~/.config/ReverseBack/settings.json` on Linux). Atomic save (temp + rename). Unknown versions or corrupt files fall back to defaults and keep the corrupt file as `.bad`. Stores last folder, device state (standalone), UI preferences (shortcuts enabled, hold key, reduced motion), user presets and the last parameter values; never audio, never monitor-on.
+JSON, `{"version": 1, ...}` at the platform user-config directory (`~/.config/ReverseBack/settings.json` on Linux). Atomic save (temp + rename). Corrupt files fall back to defaults and keep the corrupt file as `.bad`; files from a newer version are read leniently (unknown fields ignored) and kept once as `settings.v<N>.bak` before being rewritten. Presets are re-read from disk before every save so several instances do not overwrite each other. Stores last folder, device state (standalone), UI preferences (shortcuts enabled, hold key, reduced motion), user presets and the last parameter values; never audio, never monitor-on.
 
 ## 14. Test map
 

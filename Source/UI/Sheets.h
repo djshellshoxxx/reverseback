@@ -75,6 +75,9 @@ public:
     void resized() override;
     void paint (juce::Graphics&) override;
 
+    // Lets tests drive the decision flow without a native file chooser.
+    void simulateOutcomeForTest (ExportOutcome o) { finished (std::move (o)); }
+
 private:
     ExportSettings settings() const;
     void refresh();

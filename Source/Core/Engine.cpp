@@ -108,6 +108,31 @@ void Engine::stopAll() noexcept
     file_.stop();
 }
 
+void Engine::bypassBlock() noexcept
+{
+    stopImmediate();
+    sink_.service();
+    publish (0);   // the UI must not keep showing a recording that no longer exists
+}
+
+void Engine::handleBypassed (Command&& c) noexcept
+{
+    switch (c.type)
+    {
+        case CommandType::Stop:
+        case CommandType::SetFile:
+        case CommandType::SetSelection:
+        case CommandType::SetTakeSelection:
+            handle (std::move (c));
+            return;
+        default:
+            break;   // never start anything while bypassed
+    }
+    sink_.retire (std::move (c.take));
+    sink_.retire (std::move (c.live));
+    sink_.retire (std::move (c.source));
+}
+
 void Engine::stopImmediate() noexcept
 {
     rec_.stopImmediate();

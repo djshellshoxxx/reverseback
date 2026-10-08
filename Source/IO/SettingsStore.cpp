@@ -1,5 +1,9 @@
 #include "SettingsStore.h"
 
+#include "SafeParse.h"
+
+#include <cmath>
+
 namespace rb
 {
 namespace
@@ -19,15 +23,22 @@ juce::var presetToVar (const PresetValues& v)
     return juce::var (o);
 }
 
+// juce::jlimit passes NaN straight through, and a NaN setting later becomes a garbage frame count.
+double finiteOr (const juce::var& v, double fallback)
+{
+    const double d = static_cast<double> (v);
+    return std::isfinite (d) ? d : fallback;
+}
+
 PresetValues presetFromVar (const juce::var& v)
 {
     PresetValues p;
     p.mode = static_cast<Mode> (juce::jlimit (0, 2, static_cast<int> (v.getProperty ("mode", 0))));
-    p.captureSeconds = juce::jlimit (0.25, kMaxCaptureSeconds, static_cast<double> (v.getProperty ("capture", 5.0)));
-    p.waitSeconds = juce::jlimit (0.0, kMaxWaitSeconds, static_cast<double> (v.getProperty ("wait", 2.0)));
-    p.liveChunkSeconds = juce::jlimit (kMinChunkSeconds, kMaxChunkSeconds, static_cast<double> (v.getProperty ("chunk", 0.5)));
-    p.liveDelaySeconds = juce::jlimit (0.0, kMaxLiveDelaySeconds, static_cast<double> (v.getProperty ("delay", 2.0)));
-    p.speed = juce::jlimit (kMinSpeed, kMaxSpeed, static_cast<double> (v.getProperty ("speed", 1.0)));
+    p.captureSeconds = juce::jlimit (0.25, kMaxCaptureSeconds, finiteOr (v.getProperty ("capture", 5.0), 5.0));
+    p.waitSeconds = juce::jlimit (0.0, kMaxWaitSeconds, finiteOr (v.getProperty ("wait", 2.0), 2.0));
+    p.liveChunkSeconds = juce::jlimit (kMinChunkSeconds, kMaxChunkSeconds, finiteOr (v.getProperty ("chunk", 0.5), 0.5));
+    p.liveDelaySeconds = juce::jlimit (0.0, kMaxLiveDelaySeconds, finiteOr (v.getProperty ("delay", 2.0), 2.0));
+    p.speed = juce::jlimit (kMinSpeed, kMaxSpeed, finiteOr (v.getProperty ("speed", 1.0), 1.0));
     p.loop = static_cast<LoopPattern> (juce::jlimit (0, 2, static_cast<int> (v.getProperty ("loop", 0))));
     p.direction = static_cast<int> (v.getProperty ("direction", 1)) == 0 ? Direction::Forward : Direction::Backward;
     p.repeatSession = static_cast<bool> (v.getProperty ("repeat", false));
@@ -74,14 +85,15 @@ juce::String SettingsStore::toJson (const StoredSettings& s)
 bool SettingsStore::fromJson (const juce::String& text, StoredSettings& out)
 {
     juce::var root;
-    if (! juce::JSON::parse (text, root).wasOk() || ! root.isObject())
+    if (! jsonStructureOk (text) || ! juce::JSON::parse (text, root).wasOk() || ! root.isObject())
         return false;
     const int version = root.getProperty ("version", 0);
     if (version < 1)
         return false;
 
     StoredSettings s;
-    s.version = StoredSettings::kVersion;   // newer files are read leniently: unknown fields are ignored
+    s.version = StoredSettings::kVersion;
+    s.loadedVersion = version;   // newer files are read leniently (unknown fields ignored); load() keeps a backup
     s.lastFolder = root.getProperty ("lastFolder", "").toString();
     s.deviceXml = root.getProperty ("deviceXml", "").toString();
     s.lastState = root.getProperty ("lastState", "").toString();
@@ -108,6 +120,13 @@ bool SettingsStore::fromJson (const juce::String& text, StoredSettings& out)
     return true;
 }
 
+bool SettingsStore::tryLoad (StoredSettings& out) const
+{
+    if (! file_.existsAsFile())
+        return false;
+    return fromJson (file_.loadFileAsString(), out);
+}
+
 StoredSettings SettingsStore::load() const
 {
     StoredSettings s;
@@ -115,7 +134,17 @@ StoredSettings SettingsStore::load() const
         return s;
     const juce::String text = file_.loadFileAsString();
     if (fromJson (text, s))
+    {
+        if (s.loadedVersion > StoredSettings::kVersion)
+        {
+            // Written by a newer ReverseBack: we keep what we understand, but our next save drops what we do
+            // not, so keep the original once.
+            const juce::File backup = file_.withFileExtension ("v" + juce::String (s.loadedVersion) + ".bak");
+            if (! backup.existsAsFile())
+                file_.copyFileTo (backup);
+        }
         return s;
+    }
     // Keep the unreadable file for the user instead of overwriting it silently.
     file_.copyFileTo (file_.withFileExtension (".bad"));
     return StoredSettings {};

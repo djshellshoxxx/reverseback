@@ -68,6 +68,11 @@ ExportOutcome analyzeExport (const ExportRequest& req, const std::atomic<bool>* 
 
 ExportOutcome writeExport (const ExportRequest& req, const std::atomic<bool>* cancel, const std::function<void (float)>& progress)
 {
+    // Ask about replacing first: every later question the caller may ask ("export anyway?", "normalise?")
+    // re-runs with overwrite already decided, so an existing file is never replaced without a clear yes.
+    if (valid (req) && req.destination.existsAsFile() && ! req.overwrite)
+        return failure (ExportError::DestinationExists, req.destination.getFileName() + " already exists.");
+
     ExportOutcome analysis = analyzeExport (req, cancel);
     if (! analysis.ok())
         return analysis;
@@ -80,13 +85,6 @@ ExportOutcome writeExport (const ExportRequest& req, const std::atomic<bool>* ca
                            "Export as 32-bit float or normalise to -1 dBFS.";
         return analysis;
     }
-    if (req.destination.existsAsFile() && ! req.overwrite)
-    {
-        analysis.error = ExportError::DestinationExists;
-        analysis.message = req.destination.getFileName() + " already exists.";
-        return analysis;
-    }
-
     const juce::File dir = req.destination.getParentDirectory();
     if (! dir.isDirectory() && ! dir.createDirectory().wasOk())
     {
@@ -179,7 +177,9 @@ ExportOutcome writeExport (const ExportRequest& req, const std::atomic<bool>* ca
         return analysis;
     }
 
-    if (! tmp.moveFileTo (req.destination))
+    // replaceFileIn is a single rename (ReplaceFile on Windows): the old file is never missing in between
+    const bool moved = req.destination.existsAsFile() ? tmp.replaceFileIn (req.destination) : tmp.moveFileTo (req.destination);
+    if (! moved)
     {
         cleanup();
         analysis.error = ExportError::WriteFailed;

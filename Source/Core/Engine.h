@@ -113,6 +113,10 @@ public:
     void process (const float* const* in, std::size_t inChannels, float* const* out, std::size_t frames) noexcept;
     void stopAll() noexcept;
     void stopImmediate() noexcept;
+    // Bypassed blocks: silence everything once, keep the state commands, hand every other payload back.
+    void bypassBlock() noexcept;
+    void handleBypassed (Command&& c) noexcept;
+    void publishNow() noexcept { publish (0); }
     void setLimiterLatency (std::size_t frames) noexcept { limiterLatency_ = static_cast<std::uint32_t> (frames); }
     void noteSanitized (std::uint32_t total) noexcept { sanitized_ = total; }
     // Direct monitoring is muted while Record mode is waiting or playing back (V1 section 5.5).

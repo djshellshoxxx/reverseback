@@ -1,5 +1,9 @@
 #include "ReverseBackProcessor.h"
 
+#include "SafeParse.h"
+
+#include <cmath>
+
 namespace rb
 {
 namespace
@@ -48,11 +52,43 @@ bool ReverseBackProcessor::isBusesLayoutSupported (const BusesLayout& l) const
     return in.isDisabled() || in == juce::AudioChannelSet::mono() || in == juce::AudioChannelSet::stereo();
 }
 
+namespace
+{
+// Counts processBlock calls in flight so prepareToPlay/releaseResources can wait for them: hosts are not
+// required to serialise those calls (the VST3 wrapper only takes the callback lock around processBlock).
+struct ProcessGuard
+{
+    explicit ProcessGuard (std::atomic<int>& c) : count_ (c) { count_.fetch_add (1, std::memory_order_seq_cst); }
+    ~ProcessGuard() { count_.fetch_sub (1, std::memory_order_release); }
+    std::atomic<int>& count_;
+};
+}  // namespace
+
+void ReverseBackProcessor::quiesce()
+{
+    prepared_.store (false, std::memory_order_seq_cst);   // new blocks see this and bail out ...
+    const auto deadline = juce::Time::getMillisecondCounter() + 2000;
+    while (inProcess_.load (std::memory_order_seq_cst) != 0 && juce::Time::getMillisecondCounter() < deadline)
+        juce::Thread::sleep (1);                            // ... and the one that may still be running finishes
+}
+
+void ReverseBackProcessor::releaseResources()
+{
+    quiesce();
+    startPending_.store (false);
+    // Nothing is running any more: leave a clean, silent engine and tell the UI so.
+    Command stale;
+    while (commands_.pop (stale)) {}
+    engine_.stopImmediate();
+    engine_.publishNow();
+    engine_.events().drainRetired();
+}
+
 void ReverseBackProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     if (sampleRate <= 0.0)
         return;
-    prepared_.store (false);
+    quiesce();
     maxBlock_ = static_cast<std::size_t> (std::clamp (samplesPerBlock, 512, 16384));
     Command stale;
     while (commands_.pop (stale)) {}   // commands issued for an old device configuration are void
@@ -68,9 +104,30 @@ void ReverseBackProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
     out_[1] = outStore_.data() + maxBlock_;
     rate_.store (sampleRate);
     faultFlag_.store (false);
-    for (bool& b : prevTrig_)
-        b = false;
-    prepared_.store (true);
+    // A trigger parameter that is already high is not a new edge: a device change must never start recording.
+    prevTrig_[0] = params_.trgStart->load() >= 0.5f;
+    prevTrig_[1] = params_.trgHold->load() >= 0.5f;
+    prevTrig_[2] = params_.trgReplay->load() >= 0.5f;
+    prevTrig_[3] = params_.trgFreeze->load() >= 0.5f;
+    startPending_.store (false);
+    prepared_.store (true, std::memory_order_seq_cst);
+
+    // The file the UI shows must also be the file the engine has, even if it was loaded (or restored from a
+    // saved state) while no audio device was running.
+    PublishedFile f;
+    {
+        const std::lock_guard<std::mutex> lock (fileStateMutex_);
+        f = published_;
+    }
+    if (f.source != nullptr)
+    {
+        Command c;
+        c.type = CommandType::SetFile;
+        c.source = f.source;
+        c.a = f.sel.begin;
+        c.b = f.sel.end;
+        commands_.push (std::move (c));
+    }
     juce::MessageManager::callAsync ([w = alive_, this]
     {
         if (*w)
@@ -96,11 +153,12 @@ void ReverseBackProcessor::detectTriggers (const ParamRefs& p) noexcept
 void ReverseBackProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
+    const ProcessGuard guard (inProcess_);
     const int total = buffer.getNumSamples();
     const int numIn = getTotalNumInputChannels();
     const int numOut = getTotalNumOutputChannels();
 
-    if (! prepared_.load (std::memory_order_acquire) || total <= 0)
+    if (! prepared_.load (std::memory_order_seq_cst) || total <= 0)
     {
         buffer.clear();
         return;
@@ -150,19 +208,47 @@ void ReverseBackProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
 
 void ReverseBackProcessor::processBlockBypassed (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
-    // Bypass cancels capture and playback once; the host's pass-through then applies.
-    if (prepared_.load (std::memory_order_acquire))
-        engine_.stopImmediate();
+    // Bypass cancels capture and playback; the host's pass-through then applies. Start-type commands issued
+    // meanwhile are handed back instead of piling up, state commands (file, selection) are still applied.
+    {
+        const ProcessGuard guard (inProcess_);
+        if (prepared_.load (std::memory_order_seq_cst))
+        {
+            Command c;
+            while (commands_.pop (c))
+                engine_.handleBypassed (std::move (c));
+            engine_.bypassBlock();
+        }
+    }
     juce::AudioProcessor::processBlockBypassed (buffer, midi);
 }
 
 // =================================================================================================
 // Control side
 // =================================================================================================
-void ReverseBackProcessor::post (Command&& c)
+bool ReverseBackProcessor::post (Command&& c)
 {
-    if (! prepared_.load() || ! commands_.push (std::move (c)))
+    // Not running (no device yet): state is re-sent by prepareToPlay, transport actions need a running engine.
+    if (! prepared_.load())
+        return false;
+    if (! commands_.push (std::move (c)))
+    {
         showBanner (BannerKind::Engine, "ReverseBack is busy. Please try again.", false, false, 3.0);
+        return false;
+    }
+    return true;
+}
+
+// A Start that was posted but not yet seen by the audio thread: further presses must not queue more takes.
+bool ReverseBackProcessor::isStartPending() const
+{
+    return startPending_.load() && engine_.snapshot().blocks == startPendingBlocks_.load();
+}
+
+void ReverseBackProcessor::markStartPosted()
+{
+    startPendingBlocks_.store (engine_.snapshot().blocks);
+    startPending_.store (true);
 }
 
 bool ReverseBackProcessor::isBusy() const
@@ -181,6 +267,8 @@ int ReverseBackProcessor::captureChannels() const { return static_cast<int> (par
 
 bool ReverseBackProcessor::takeBudgetOk (Frame frames, int channels, bool repeat) const
 {
+    if (frames == 0 || frames > kTakeBudgetBytes)   // also rules out overflow of the product below
+        return false;
     const std::size_t one = static_cast<std::size_t> (frames) * static_cast<std::size_t> (channels) * sizeof (float);
     const std::size_t retained = take_ && take_->clip ? static_cast<const AudioClip*> (take_->clip.get())->byteSize() : 0;
     return one * (repeat ? 2 : 1) + retained <= kTakeBudgetBytes;
@@ -188,7 +276,7 @@ bool ReverseBackProcessor::takeBudgetOk (Frame frames, int channels, bool repeat
 
 void ReverseBackProcessor::startRecording (bool hold)
 {
-    if (! prepared_.load())
+    if (! prepared_.load() || isStartPending())
         return;
     if (getTotalNumInputChannels() == 0 || (host_ != nullptr && ! host_->hasInputDevice()))
     {
@@ -212,10 +300,13 @@ void ReverseBackProcessor::startRecording (bool hold)
         Command c;
         c.type = hold ? CommandType::StartHold : CommandType::StartRecord;
         c.take = AudioClip::create (rate, ch, frames);
-        post (std::move (c));
-        dismissBanner();
+        if (post (std::move (c)))
+        {
+            markStartPosted();
+            dismissBanner();
+        }
     }
-    catch (const std::bad_alloc&)
+    catch (const std::exception&)   // bad_alloc, or length_error for an absurd size
     {
         showBanner (BannerKind::Engine, "Not enough memory is available for this recording.");
     }
@@ -223,7 +314,7 @@ void ReverseBackProcessor::startRecording (bool hold)
 
 void ReverseBackProcessor::startLive()
 {
-    if (! prepared_.load())
+    if (! prepared_.load() || isStartPending())
         return;
     if (getTotalNumInputChannels() == 0 || (host_ != nullptr && ! host_->hasInputDevice()))
     {
@@ -240,12 +331,15 @@ void ReverseBackProcessor::startLive()
         showBanner (BannerKind::Engine, "These Live settings need too much memory. Use a shorter chunk or delay.");
         return;
     }
-    liveStorage_ = storage;
     Command c;
     c.type = CommandType::StartLive;
-    c.live = std::move (storage);
-    post (std::move (c));
-    dismissBanner();
+    c.live = storage;
+    if (post (std::move (c)))
+    {
+        liveStorage_ = std::move (storage);   // only what the engine was actually given
+        markStartPosted();
+        dismissBanner();
+    }
 }
 
 void ReverseBackProcessor::actionStart()
@@ -365,6 +459,7 @@ void ReverseBackProcessor::finishLoad (LoadOutcome outcome, bool keepSelection, 
         && selection.length() >= framesFor (kMinSelectionSeconds, fileAsset_->sampleRate, 1))
         fileSel_ = selection;
     ++fileVersion_;
+    publishFileState();
     rememberFolder (fileAsset_->file);
     dismissBanner();
 
@@ -377,6 +472,19 @@ void ReverseBackProcessor::finishLoad (LoadOutcome outcome, bool keepSelection, 
     sendChangeMessage();
 }
 
+void ReverseBackProcessor::publishFileState()
+{
+    PublishedFile f;
+    if (fileAsset_)
+    {
+        f.path = fileAsset_->file;
+        f.source = fileAsset_->source;
+        f.sel = fileSel_;
+    }
+    const std::lock_guard<std::mutex> lock (fileStateMutex_);
+    published_ = std::move (f);
+}
+
 bool ReverseBackProcessor::setFileSelection (Selection sel)
 {
     if (! fileAsset_ || sel.end > fileAsset_->frames
@@ -385,6 +493,7 @@ bool ReverseBackProcessor::setFileSelection (Selection sel)
     if (sel == fileSel_)
         return true;
     fileSel_ = sel;
+    publishFileState();
     Command c;
     c.type = CommandType::SetSelection;
     c.a = sel.begin;
@@ -528,26 +637,41 @@ void ReverseBackProcessor::saveUserPreset (const juce::String& name)
     if (n.isEmpty())
         return;
     const PresetValues v = currentPresetValues();
+    refreshPresetsFromDisk();   // another instance may have saved presets since this one started
+    bool replaced = false;
     for (auto& p : settings_.userPresets)
         if (p.name == n)
         {
             p.values = v;
-            saveStoredSettings();
-            return;
+            replaced = true;
         }
-    if (settings_.userPresets.size() < 64)
+    if (! replaced && settings_.userPresets.size() < 64)
         settings_.userPresets.push_back ({ n, v });
-    saveStoredSettings();
+    store_.save (settings_);
 }
 
 void ReverseBackProcessor::deleteUserPreset (const juce::String& name)
 {
+    refreshPresetsFromDisk();
     auto& v = settings_.userPresets;
     v.erase (std::remove_if (v.begin(), v.end(), [&] (const UserPreset& p) { return p.name == name; }), v.end());
-    saveStoredSettings();
+    store_.save (settings_);
 }
 
-void ReverseBackProcessor::saveStoredSettings() { store_.save (settings_); }
+// Several plugin instances (and the standalone) share one settings file: presets saved by another one must
+// not be overwritten by this instance's older copy.
+void ReverseBackProcessor::refreshPresetsFromDisk()
+{
+    StoredSettings disk;
+    if (store_.tryLoad (disk))
+        settings_.userPresets = std::move (disk.userPresets);
+}
+
+void ReverseBackProcessor::saveStoredSettings()
+{
+    refreshPresetsFromDisk();   // presets are only ever changed through saveUserPreset/deleteUserPreset
+    store_.save (settings_);
+}
 
 void ReverseBackProcessor::rememberFolder (const juce::File& f)
 {
@@ -625,7 +749,7 @@ void ReverseBackProcessor::showBanner (BannerKind kind, const juce::String& text
 
 void ReverseBackProcessor::showSavedBanner (const juce::File& saved)
 {
-    showBanner (BannerKind::Info, "Saved " + saved.getFileName(), false, false, 8.0);
+    showBanner (BannerKind::Info, "Saved " + saved.getFileName(), false, false, 4.0);
     banner_.reveal = saved;
     rememberFolder (saved);
     sendChangeMessage();
@@ -635,6 +759,8 @@ void ReverseBackProcessor::dismissBanner()
 {
     if (banner_.kind != BannerKind::None)
     {
+        if (banner_.kind == BannerKind::Device)
+            dismissedDeviceError_ = banner_.text;   // do not bring the same complaint back every tick
         banner_ = {};
         banner_.id = ++bannerId_;
         sendChangeMessage();
@@ -646,7 +772,10 @@ void ReverseBackProcessor::retryBanner()
     const BannerKind k = banner_.kind;
     dismissBanner();
     if (k == BannerKind::Device && host_ != nullptr)
+    {
+        dismissedDeviceError_ = {};   // after an explicit retry a persisting problem is worth showing again
         host_->retryDevices();
+    }
     else if (k == BannerKind::File)
         playFile (true);
 }
@@ -751,13 +880,19 @@ void ReverseBackProcessor::service()
     if (banner_.autoDismissSeconds > 0.0 && juce::Time::getMillisecondCounterHiRes() * 0.001 - bannerShownAt_ > banner_.autoDismissSeconds)
         dismissBanner();
 
-    if (host_ != nullptr && banner_.kind != BannerKind::Info)
+    if (host_ != nullptr)
     {
         const juce::String err = host_->getDeviceError();
-        if (err.isNotEmpty() && (banner_.kind != BannerKind::Device || banner_.text != err))
-            showBanner (BannerKind::Device, err, true, true);
-        else if (err.isEmpty() && banner_.kind == BannerKind::Device)
-            dismissBanner();
+        if (err.isEmpty())
+        {
+            dismissedDeviceError_ = {};
+            if (banner_.kind == BannerKind::Device)
+                dismissBanner();
+        }
+        else if (banner_.kind == BannerKind::Device && banner_.text != err)
+            showBanner (BannerKind::Device, err, true, true);   // the device message changed
+        else if (banner_.kind == BannerKind::None && err != dismissedDeviceError_)
+            showBanner (BannerKind::Device, err, true, true);   // never replaces another message, never nags after Dismiss
     }
 }
 
@@ -769,12 +904,17 @@ std::unique_ptr<juce::XmlElement> ReverseBackProcessor::getStateAsXml() const
     for (const char* id : persistentParameterIds())
         if (auto* v = apvts.getRawParameterValue (id))
             xml->setAttribute (id, static_cast<double> (v->load()));
-    if (fileAsset_)   // path and selection only: audio is never stored
+    PublishedFile file;
+    {
+        const std::lock_guard<std::mutex> lock (fileStateMutex_);   // hosts may save from any thread
+        file = published_;
+    }
+    if (file.source != nullptr)   // path and selection only: audio is never stored
     {
         auto* f = xml->createNewChildElement ("File");
-        f->setAttribute ("path", fileAsset_->file.getFullPathName());
-        f->setAttribute ("begin", juce::String (static_cast<juce::int64> (fileSel_.begin)));
-        f->setAttribute ("end", juce::String (static_cast<juce::int64> (fileSel_.end)));
+        f->setAttribute ("path", file.path.getFullPathName());
+        f->setAttribute ("begin", juce::String (static_cast<juce::int64> (file.sel.begin)));
+        f->setAttribute ("end", juce::String (static_cast<juce::int64> (file.sel.end)));
     }
     return xml;
 }
@@ -792,7 +932,11 @@ void ReverseBackProcessor::setStateFromXml (const juce::XmlElement& xml, bool re
     for (const char* id : persistentParameterIds())
         if (xml.hasAttribute (id))
             if (auto* p = apvts.getParameter (id))
-                p->setValueNotifyingHost (p->convertTo0to1 (static_cast<float> (xml.getDoubleAttribute (id))));
+            {
+                const double v = xml.getDoubleAttribute (id);
+                if (std::isfinite (v))   // "nan" parses to NaN and would poison every derived frame count
+                    p->setValueNotifyingHost (p->convertTo0to1 (static_cast<float> (v)));
+            }
     // Never record, play or arm because a state was loaded.
     Command c;
     c.type = CommandType::Stop;
@@ -818,7 +962,7 @@ void ReverseBackProcessor::setStateFromXml (const juce::XmlElement& xml, bool re
 
 void ReverseBackProcessor::setStateInformation (const void* data, int size)
 {
-    if (auto xml = getXmlFromBinary (data, size))
+    if (auto xml = xmlFromStateBlob (data, size))
         setStateFromXml (*xml, true);
 }
 }  // namespace rb

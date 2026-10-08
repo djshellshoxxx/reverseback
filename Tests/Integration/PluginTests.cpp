@@ -213,7 +213,9 @@ RB_TEST (P09_reported_latency_is_zero_in_plugin_builds)
     ProcHarness h;
     CHECK_EQ (h.p->getLatencySamples(), 0);
     CHECK (! h.p->isStandalone());
-    CHECK (h.p->getTailLengthSeconds() == 0.0);
+    // The output (wait, playback, live delay) does not depend on the input: hosts must never stop calling us
+    // because the input went silent, so the tail is reported as infinite.
+    CHECK (std::isinf (h.p->getTailLengthSeconds()));
 }
 
 RB_TEST (trigger_parameters_act_on_rising_edges_only)

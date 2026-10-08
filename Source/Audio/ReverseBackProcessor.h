@@ -14,6 +14,9 @@
 
 #include <juce_audio_utils/juce_audio_utils.h>
 
+#include <limits>
+#include <mutex>
+
 namespace rb
 {
 // Implemented by the standalone application so the shared editor can show and manage devices.
@@ -73,7 +76,7 @@ public:
     const juce::String getName() const override { return "ReverseBack"; }
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     // A device stop/disconnect: silence immediately; prepareToPlay rebuilds everything (takes are kept).
-    void releaseResources() override { prepared_.store (false); }
+    void releaseResources() override;
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     void processBlockBypassed (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
@@ -83,7 +86,8 @@ public:
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 0.0; }
+    // Output is generated independently of the input (wait, playback, live delay): never let a host stop calling us.
+    double getTailLengthSeconds() const override { return std::numeric_limits<double>::infinity(); }
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
     void setCurrentProgram (int) override {}
@@ -174,7 +178,12 @@ private:
     void timerCallback() override { service(); }
     void service();
     void handleEvent (Event&& e);
-    void post (Command&& c);
+    bool post (Command&& c);
+    void quiesce();
+    void publishFileState();
+    void refreshPresetsFromDisk();
+    bool isStartPending() const;
+    void markStartPosted();
     void startRecording (bool hold);
     void startLive();
     bool takeBudgetOk (Frame frames, int channels, bool repeat) const;
@@ -199,6 +208,20 @@ private:
     std::atomic<std::uint32_t> triggerBits_ { 0 };
     bool prevTrig_[4] = { false, false, false, false };
     bool standalone_ = false;
+    std::atomic<int> inProcess_ { 0 };   // processBlock calls in flight; prepare/release wait for 0
+    std::atomic<bool> startPending_ { false };
+    std::atomic<std::uint32_t> startPendingBlocks_ { 0 };
+
+    // What the engine should have and what a host saves: written on the message thread, read from any thread.
+    struct PublishedFile
+    {
+        juce::File path;
+        std::shared_ptr<const ClipSource> source;
+        Selection sel;
+    };
+    mutable std::mutex fileStateMutex_;
+    PublishedFile published_;
+    juce::String dismissedDeviceError_;
 
     // ---- control side (message thread)
     HostServices* host_ = nullptr;
