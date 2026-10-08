@@ -49,7 +49,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_definitions(rb_core PUBLIC RB_NO_ALLOC_HOOK=1)
   endif()
 elseif(MSVC)
-  target_compile_options(rb_core PRIVATE /W4)
+  target_compile_options(rb_core PRIVATE /W4 /wd4324)   # 4324: cache-line alignment padding is intended
 endif()
 
 if(RB_BUILD_TESTS)

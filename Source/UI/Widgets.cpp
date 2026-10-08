@@ -66,7 +66,7 @@ void ActionButton::paintButton (juce::Graphics& g, bool, bool down)
 {
     auto r = getLocalBounds().toFloat().reduced (1.0f);
     const float radius = style_ == Style::Primary ? metric::primaryRadius : metric::controlRadius;
-    juce::Colour fill = col::bg2, border = juce::Colours::transparentBlack, text = col::text;
+    juce::Colour fill = col::bg2, border = juce::Colours::transparentBlack, textCol = col::text;
     const bool on = isEnabled();
 
     switch (style_)
@@ -84,7 +84,7 @@ void ActionButton::paintButton (juce::Graphics& g, bool, bool down)
         case Style::Ghost:
         case Style::Icon:
             fill = col::bg2.withAlpha (0.85f * hover_);
-            text = col::text2.interpolatedWith (col::text, hover_);
+            textCol = col::text2.interpolatedWith (col::text, hover_);
             break;
         case Style::Tab:
             if (selected_)
@@ -92,7 +92,7 @@ void ActionButton::paintButton (juce::Graphics& g, bool, bool down)
             else
             {
                 fill = col::bg2.withAlpha (0.8f * hover_);
-                text = col::text2.interpolatedWith (col::text, hover_);
+                textCol = col::text2.interpolatedWith (col::text, hover_);
             }
             break;
     }
@@ -101,7 +101,7 @@ void ActionButton::paintButton (juce::Graphics& g, bool, bool down)
     if (! on)
     {
         fill = fill.withMultipliedAlpha (0.45f);
-        text = text.withMultipliedAlpha (0.5f);
+        textCol = textCol.withMultipliedAlpha (0.5f);
     }
 
     if (style_ == Style::Primary && on)
@@ -134,7 +134,7 @@ void ActionButton::paintButton (juce::Graphics& g, bool, bool down)
     {
         if (textW > 0.0f)
         {
-            g.setColour (text);
+            g.setColour (textCol);
             g.setFont (font);
             g.drawText (label, juce::Rectangle<float> (x, r.getY(), textW + 4.0f, r.getHeight()), juce::Justification::centredLeft, false);
             x += textW + gap;
@@ -144,7 +144,7 @@ void ActionButton::paintButton (juce::Graphics& g, bool, bool down)
     {
         if (iconW > 0.0f)
         {
-            drawIcon (g, icon_, juce::Rectangle<float> (x, r.getCentreY() - iconSize * 0.5f, iconSize, iconSize), text, 1.9f);
+            drawIcon (g, icon_, juce::Rectangle<float> (x, r.getCentreY() - iconSize * 0.5f, iconSize, iconSize), textCol, 1.9f);
             x += iconW + gap;
         }
     };
