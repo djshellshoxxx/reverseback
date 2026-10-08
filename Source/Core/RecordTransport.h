@@ -28,8 +28,11 @@ public:
 
     // ----- real-time (audio thread) -----
     // `take` must be a zeroed, unsealed clip whose capacity covers the capture (or the hold maximum).
-    bool start (const RecordSettings& s, std::shared_ptr<AudioClip> take, bool held) noexcept;
-    void provideSpare (std::shared_ptr<AudioClip> take) noexcept;
+    // `take` is moved from only when it is accepted; on rejection the caller still owns it and retires it.
+    bool start (const RecordSettings& s, std::shared_ptr<AudioClip>& take, bool held) noexcept;
+    void provideSpare (std::shared_ptr<AudioClip>& take) noexcept;
+    // Latest settings; a running Repeat Session picks them up at its next cycle.
+    void setNextSettings (const RecordSettings& s) noexcept { next_ = s; }
     void finishEarly() noexcept;   // timed capture: close with what has been recorded
     void releaseHold() noexcept;
     bool replay() noexcept;
@@ -63,12 +66,13 @@ private:
     void beginPlaying() noexcept;
     void onPlayFinished() noexcept;
     void discardCurrent() noexcept;
+    void endSession() noexcept;
     void copyInput (const float* const* in, std::size_t inCh, std::size_t pos, std::size_t m) noexcept;
 
     double rate_ = 48000.0;
     EventSink* sink_ = nullptr;
     State state_ = State::Ready;
-    RecordSettings cfg_ {};
+    RecordSettings cfg_ {}, next_ {};
 
     std::shared_ptr<AudioClip> current_, spare_;
     std::shared_ptr<const AudioClip> retained_;

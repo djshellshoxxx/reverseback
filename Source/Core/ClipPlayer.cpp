@@ -73,8 +73,24 @@ void ClipPlayer::setSource (const ClipSource* src, Selection sel) noexcept
     u0_ = 0.0;
     n_ = M_ = passFrames_ = fadeEff_ = 0;
     gain_ = gainTarget_ = 1.0f;
-    pendingDir_ = pendingSpeed_ = pendingRestart_ = false;
+    pendingDir_ = pendingSpeed_ = pendingRestart_ = pendingSel_ = false;
+    flipped_ = false;
+    dir_ = baseDir_;
     updateRatio();
+}
+
+void ClipPlayer::changeSelection (Selection sel) noexcept
+{
+    if (src_ == nullptr)
+        return;
+    if (state_ != State::Playing)
+    {
+        setSource (src_, sel);
+        return;
+    }
+    pendingSel_ = true;
+    newSel_ = sel;
+    raisePending();
 }
 
 void ClipPlayer::setSpeed (double speed) noexcept
@@ -101,20 +117,22 @@ void ClipPlayer::setSpeed (double speed) noexcept
 
 void ClipPlayer::setDirection (Direction d) noexcept
 {
+    baseDir_ = d;
+    const Direction eff = flipped_ ? (d == Direction::Forward ? Direction::Backward : Direction::Forward) : d;
     if (state_ == State::Playing)
     {
-        if (d != (pendingDir_ ? newDir_ : dir_))
+        if (eff != (pendingDir_ ? newDir_ : dir_))
         {
             pendingDir_ = true;
-            newDir_ = d;
+            newDir_ = eff;
             raisePending();
         }
         return;
     }
-    if (d == dir_)
+    if (eff == dir_)
         return;
     const double uc = curU();
-    dir_ = d;
+    dir_ = eff;
     if (! finished_ && len_ > 0)
         beginSegment (std::clamp (static_cast<double> (len_) - 1.0 - uc, 0.0, static_cast<double> (len_)));
 }
@@ -128,6 +146,20 @@ void ClipPlayer::raisePending() noexcept
 void ClipPlayer::applyPending() noexcept
 {
     double uc = curU();
+    if (pendingSel_)
+    {
+        // Keep the playhead on the same source frame when it is still inside the new selection.
+        const double srcPos = dir_ == Direction::Forward ? static_cast<double> (sel_.begin) + uc
+                                                          : static_cast<double> (sel_.end) - 1.0 - uc;
+        sel_ = newSel_;
+        len_ = sel_.length();
+        const double lo = static_cast<double> (sel_.begin), hi = static_cast<double> (sel_.end);
+        if (len_ > 0 && srcPos >= lo && srcPos < hi)
+            uc = dir_ == Direction::Forward ? srcPos - lo : hi - 1.0 - srcPos;
+        else
+            uc = 0.0;
+        pendingSel_ = false;
+    }
     if (pendingDir_ && newDir_ != dir_)
     {
         dir_ = newDir_;
@@ -140,7 +172,11 @@ void ClipPlayer::applyPending() noexcept
     }
     const bool restart = pendingRestart_;
     if (restart)
+    {
         uc = 0.0;
+        flipped_ = false;   // a restart starts a fresh pass in the user's direction
+        dir_ = baseDir_;
+    }
     pendingDir_ = pendingSpeed_ = pendingRestart_ = false;
     finished_ = false;
     beginSegment (uc);
@@ -182,6 +218,8 @@ void ClipPlayer::play (bool fromStart) noexcept
         case State::Idle:
             if (fromStart || finished_ || n_ >= M_)
             {
+                flipped_ = false;
+                dir_ = baseDir_;
                 finished_ = false;
                 beginSegment (0.0);
                 passFrames_ = 0;
@@ -204,7 +242,7 @@ void ClipPlayer::stop() noexcept
 {
     if (state_ != State::Playing)
         return;
-    if (pendingDir_ || pendingSpeed_ || pendingRestart_)
+    if (pendingDir_ || pendingSpeed_ || pendingRestart_ || pendingSel_)
         applyPending();
     state_ = State::Stopping;
     gainTarget_ = 0.0f;
@@ -213,7 +251,7 @@ void ClipPlayer::stop() noexcept
 
 void ClipPlayer::stopImmediate() noexcept
 {
-    if (pendingDir_ || pendingSpeed_ || pendingRestart_)
+    if (pendingDir_ || pendingSpeed_ || pendingRestart_ || pendingSel_)
         applyPending();
     state_ = State::Idle;
     gain_ = gainTarget_ = 1.0f;
@@ -224,6 +262,26 @@ bool ClipPlayer::advancePass() noexcept
     switch (loop_)
     {
         case LoopPattern::Once:
+            // A request that landed inside the last declick ramp must not be lost or left behind as a stale flag.
+            if (pendingRestart_)
+            {
+                applyPending();   // continues with a fresh pass
+                return true;
+            }
+            if (pendingSel_)
+            {
+                sel_ = newSel_;
+                len_ = sel_.length();
+                pendingSel_ = false;
+            }
+            if (pendingDir_)
+                dir_ = newDir_;
+            if (pendingSpeed_)
+            {
+                speed_ = newSpeed_;
+                updateRatio();
+            }
+            pendingDir_ = pendingSpeed_ = false;
             state_ = State::Idle;
             finished_ = true;
             u0_ = 0.0;
@@ -232,6 +290,7 @@ bool ClipPlayer::advancePass() noexcept
             return false;
 
         case LoopPattern::PingPong:
+            flipped_ = ! flipped_;
             dir_ = dir_ == Direction::Forward ? Direction::Backward : Direction::Forward;
             [[fallthrough]];
         case LoopPattern::Loop:
@@ -347,7 +406,7 @@ std::size_t ClipPlayer::process (float* const* out, std::size_t outChannels, std
             continue;
         }
 
-        const bool pending = pendingDir_ || pendingSpeed_ || pendingRestart_;
+        const bool pending = pendingDir_ || pendingSpeed_ || pendingRestart_ || pendingSel_;
         if (pending && gain_ <= 0.0f)
         {
             applyPending();

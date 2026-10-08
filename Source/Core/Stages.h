@@ -47,12 +47,12 @@ public:
 private:
     std::size_t lookahead_ = 48;
     std::size_t channels_ = 2;
-    float releaseCoef_ = 0.0f;
+    double releaseCoef_ = 0.0;   // double: a float release stalls just below unity and never returns to exactly 1
     std::size_t pos_ = 0;
-    float held_ = 1.0f;
+    double held_ = 1.0;
     std::vector<float> delay_[kMaxChannels];   // lookahead+1 samples
-    std::vector<float> target_;                // lookahead+1 per-sample target gains
-    std::vector<float> smoothed_;              // lookahead+1 release-smoothed gains
+    std::vector<double> target_;               // lookahead+1 per-sample target gains
+    std::vector<double> smoothed_;             // lookahead+1 release-smoothed gains
 };
 
 class OutputStage

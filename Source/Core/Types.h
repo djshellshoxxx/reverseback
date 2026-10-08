@@ -22,7 +22,8 @@ enum class ErrorCode : std::uint8_t
     Underrun,              // disk cache block was not resident
     DspFault,              // non-finite output detected
     WrongMode,
-    Busy
+    Busy,
+    TakeTooSmall           // the recording buffer was prepared for different settings than the engine now has
 };
 
 constexpr std::size_t kMaxChannels = 2;

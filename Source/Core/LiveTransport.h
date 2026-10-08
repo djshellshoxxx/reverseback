@@ -45,12 +45,13 @@ public:
     void prepare (double rate, std::size_t maxBlock, EventSink* sink);
 
     // ----- real-time -----
-    bool start (std::shared_ptr<LiveStorage> storage, Frame fadeFrames) noexcept;
+    // `storage` is moved from only when accepted; on rejection the caller still owns it and retires it.
+    bool start (std::shared_ptr<LiveStorage>& storage, Frame fadeFrames) noexcept;
     void freeze() noexcept;
     void resume() noexcept;
     void stop() noexcept;
     void stopImmediate() noexcept;
-    void setFadeFrames (Frame f) noexcept { fade_ = f; }
+    void setFadeFrames (Frame f) noexcept { nextFade_ = f; }   // takes effect at the next chunk boundary
     void setStopFadeFrames (Frame f) noexcept { stopFade_ = std::max<Frame> (1, f); }
 
     void process (const float* const* in, std::size_t inChannels, float* const* out, std::size_t frames) noexcept;
@@ -83,12 +84,13 @@ private:
     {
         bool active = false;
         std::shared_ptr<LiveStorage> storage;
-        Frame slot = 0, u = 0, remaining = 0, total = 0;
+        Frame slot = 0, u = 0, remaining = 0, total = 0, fade = 0;
         bool loop = false;
     };
 
     Frame slotOf (std::int64_t chunk) const noexcept { return (base_ + static_cast<Frame> (chunk)) % S_; }
-    float chunkGain (Frame u) const noexcept;
+    static float envelope (Frame u, Frame W, Frame fade) noexcept;
+    float chunkGain (Frame u) const noexcept { return envelope (u, W_, fade_); }
     void captureInto (const float* const* in, std::size_t inCh, std::size_t pos, std::size_t m) noexcept;
     bool renderChunk (float* const* out, std::size_t pos, std::size_t m) noexcept;
     void renderFrozen (float* const* out, std::size_t pos, std::size_t m) noexcept;
@@ -105,7 +107,7 @@ private:
     Tail tail_;
 
     Frame W_ = 0, D_ = 0, S_ = 1, base_ = 0, t_ = 0;
-    Frame fade_ = 0, stopFade_ = 480;
+    Frame fade_ = 0, nextFade_ = 0, stopFade_ = 480;
     int ch_ = 1;
 
     // Freeze bookkeeping

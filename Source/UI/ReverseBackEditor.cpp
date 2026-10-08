@@ -642,6 +642,15 @@ ReverseBackEditor::ReverseBackEditor (ReverseBackProcessor& p)
 
 ReverseBackEditor::~ReverseBackEditor()
 {
+    // Parameter attachments hold listeners on the widgets below: they must go first, whatever the
+    // declaration order of the members is (a slider declared after the attachment vector used to be
+    // destroyed before it and the attachment then touched freed memory).
+    sliderAttach_.clear();
+    buttonAttach_.clear();
+    inputChannelsAttach_.reset();
+    modeAttach_.reset();
+    dirAttach_.reset();
+    loopAttach_.reset();
     stopTimer();
     juce::Desktop::getInstance().removeFocusChangeListener (this);
     proc_.removeChangeListener (this);

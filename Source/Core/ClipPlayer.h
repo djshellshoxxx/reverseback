@@ -17,6 +17,9 @@ public:
     // ----- real-time safe -----
     void setOutputRate (double rate) noexcept;
     void setSource (const ClipSource* src, Selection sel) noexcept;   // stops immediately, rewinds
+    // Changes the selection of the current source. While playing the audio keeps going (declicked) from the
+    // same source position when it lies inside the new selection, otherwise from the start of it.
+    void changeSelection (Selection sel) noexcept;
     void setSpeed (double speed) noexcept;
     void setDirection (Direction d) noexcept;
     void setLoop (LoopPattern l) noexcept { loop_ = l; }
@@ -31,7 +34,7 @@ public:
     bool isActive() const noexcept { return state_ != State::Idle; }
     bool isPlaying() const noexcept { return state_ == State::Playing; }
     bool underrun() const noexcept { return underrun_; }
-    Direction direction() const noexcept { return dir_; }
+    Direction direction() const noexcept { return baseDir_; }   // the user's setting (ping-pong flips only the current pass)
     double ratio() const noexcept { return ratio_; }
 
     // Adds up to `frames` frames into out[0..outChannels). Returns the number of frames produced;
@@ -65,7 +68,9 @@ private:
     double ratio_ = 1.0;
     double maxRatio_ = 16.0;
     std::size_t maxBlock_ = 0;
-    Direction dir_ = Direction::Backward;
+    Direction dir_ = Direction::Backward;       // direction of the current pass
+    Direction baseDir_ = Direction::Backward;   // direction setting; dir_ differs only on odd ping-pong passes
+    bool flipped_ = false;
     LoopPattern loop_ = LoopPattern::Once;
     Frame fade_ = 0, declick_ = 96, stopFade_ = 480;
 
@@ -78,9 +83,10 @@ private:
 
     float gain_ = 1.0f, gainTarget_ = 1.0f, gainStep_ = 0.0f;
 
-    bool pendingDir_ = false, pendingSpeed_ = false, pendingRestart_ = false;
+    bool pendingDir_ = false, pendingSpeed_ = false, pendingRestart_ = false, pendingSel_ = false;
     Direction newDir_ = Direction::Backward;
     double newSpeed_ = 1.0;
+    Selection newSel_ {};
 
     std::vector<float> tmpStore_, winStore_;
     float* tmp_[kMaxChannels] = {};

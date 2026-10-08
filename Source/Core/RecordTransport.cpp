@@ -17,6 +17,8 @@ void RecordTransport::prepare (double rate, std::size_t maxBlock, EventSink* sin
     state_ = State::Ready;
     current_.reset();
     spare_.reset();
+    repeat_ = false;
+    held_ = false;
 }
 
 void RecordTransport::discardCurrent() noexcept
@@ -24,6 +26,15 @@ void RecordTransport::discardCurrent() noexcept
     if (current_)
         sink_->retire (std::move (current_));
     current_.reset();
+}
+
+// Ends a Repeat Session: no further automatic capture may happen after this.
+void RecordTransport::endSession() noexcept
+{
+    if (spare_)
+        sink_->retire (std::move (spare_));
+    spare_.reset();
+    repeat_ = false;
 }
 
 void RecordTransport::requestSpare() noexcept
@@ -36,14 +47,16 @@ void RecordTransport::requestSpare() noexcept
     sink_->post (std::move (e));
 }
 
-bool RecordTransport::start (const RecordSettings& s, std::shared_ptr<AudioClip> take, bool held) noexcept
+bool RecordTransport::start (const RecordSettings& s, std::shared_ptr<AudioClip>& take, bool held) noexcept
 {
     if (state_ != State::Ready || ! take || take->sealed())
         return false;
     if (player_.isActive())
         player_.stopImmediate();
+    if (spare_)
+        sink_->retire (std::move (spare_));   // a buffer left over from an earlier session
 
-    cfg_ = s;
+    cfg_ = next_ = s;
     current_ = std::move (take);
     takeCh_ = current_->channels();
     spareCapacity_ = current_->capacity();
@@ -75,9 +88,10 @@ bool RecordTransport::start (const RecordSettings& s, std::shared_ptr<AudioClip>
     return true;
 }
 
-void RecordTransport::provideSpare (std::shared_ptr<AudioClip> take) noexcept
+void RecordTransport::provideSpare (std::shared_ptr<AudioClip>& take) noexcept
 {
-    if (! take || take->sealed())
+    // Only a running Repeat Session wants a spare; a late answer after Stop is left to the caller to retire.
+    if (! take || take->sealed() || ! repeat_ || state_ == State::Ready)
         return;
     if (spare_)
         sink_->retire (std::move (spare_));
@@ -127,6 +141,7 @@ void RecordTransport::cancelCapture (bool tooShort) noexcept
 {
     discardCurrent();
     state_ = State::Ready;
+    endSession();
     Event e;
     e.type = tooShort ? EventType::TooShort : EventType::CaptureCancelled;
     sink_->post (std::move (e));
@@ -167,8 +182,17 @@ void RecordTransport::closeCapture() noexcept
 
 void RecordTransport::finishEarly() noexcept
 {
-    if (state_ == State::Recording)
-        closeCapture();
+    if (state_ != State::Recording)
+        return;
+    if (captured_ < minFrames_)
+    {
+        // Too little audio to keep (ENGINE_DESIGN section 7.1): ignored, the capture carries on.
+        Event e;
+        e.type = EventType::TooShort;
+        sink_->post (std::move (e));
+        return;
+    }
+    closeCapture();
 }
 
 void RecordTransport::releaseHold() noexcept
@@ -220,6 +244,11 @@ void RecordTransport::onPlayFinished() noexcept
     sink_->post (std::move (e));
     if (repeat_)
     {
+        // settings changed during the session apply from this cycle on (V1 section 4.2)
+        cfg_.captureFrames = next_.captureFrames;
+        cfg_.waitFrames = next_.waitFrames;
+        cfg_.tailGapFrames = next_.tailGapFrames;
+        cfg_.thresholdDb = next_.thresholdDb;
         gapLeft_ = cfg_.tailGapFrames;
         gapExtra_ = 0;
         state_ = State::ReadyGap;
@@ -255,10 +284,7 @@ void RecordTransport::stop() noexcept
         case State::ReadyGap:
             break;
     }
-    if (spare_)
-        sink_->retire (std::move (spare_));
-    spare_.reset();
-    repeat_ = false;
+    endSession();
     state_ = State::Ready;
 }
 
@@ -414,6 +440,15 @@ void RecordTransport::process (const float* const* in, std::size_t inCh, float* 
                     gapLeft_ -= m;
                     pos += m;
                     break;
+                }
+                if (spare_ && (spare_->capacity() < cfg_.captureFrames || spare_->channels() != takeCh_
+                               || std::abs (spare_->sampleRate() - rate_) > 0.5))
+                {
+                    // prepared for other settings: hand it back and ask for one that fits
+                    sink_->retire (std::move (spare_));
+                    spare_.reset();
+                    spareCapacity_ = cfg_.captureFrames;
+                    requestSpare();
                 }
                 if (spare_)
                 {

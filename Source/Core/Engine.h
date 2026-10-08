@@ -108,6 +108,7 @@ public:
     // ----- real-time (audio thread) -----
     void applySettings (const Settings& s) noexcept;
     void handle (Command&& c) noexcept;
+    RecordSettings recordSettings() const noexcept;
     // `in`: captured channels already mapped/gained (1 or 2); `out`: two planar stereo buffers (overwritten).
     void process (const float* const* in, std::size_t inChannels, float* const* out, std::size_t frames) noexcept;
     void stopAll() noexcept;

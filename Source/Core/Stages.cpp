@@ -50,12 +50,12 @@ const float* const* InputStage::process (const float* const* hostIn, std::size_t
 void OutputLimiter::prepare (double rate, std::size_t channels)
 {
     channels_ = std::min<std::size_t> (channels, kMaxChannels);
-    lookahead_ = static_cast<std::size_t> (std::max<Frame> (1, framesFor (0.001, rate)));
-    releaseCoef_ = static_cast<float> (1.0 - std::exp (-1.0 / (rate * 0.08)));
+    lookahead_ = static_cast<std::size_t> (std::max<Frame> (1, static_cast<Frame> (std::ceil (0.001 * rate - 1.0e-9))));   // ceil (ENGINE_DESIGN section 6)
+    releaseCoef_ = 1.0 - std::exp (-1.0 / (rate * 0.08));
     for (auto& d : delay_)
         d.assign (lookahead_ + 1, 0.0f);
-    target_.assign (lookahead_ + 1, 1.0f);
-    smoothed_.assign (lookahead_ + 1, 1.0f);
+    target_.assign (lookahead_ + 1, 1.0);
+    smoothed_.assign (lookahead_ + 1, 1.0);
     reset();
 }
 
@@ -63,10 +63,10 @@ void OutputLimiter::reset() noexcept
 {
     for (auto& d : delay_)
         std::fill (d.begin(), d.end(), 0.0f);
-    std::fill (target_.begin(), target_.end(), 1.0f);
-    std::fill (smoothed_.begin(), smoothed_.end(), 1.0f);
+    std::fill (target_.begin(), target_.end(), 1.0);
+    std::fill (smoothed_.begin(), smoothed_.end(), 1.0);
     pos_ = 0;
-    held_ = 1.0f;
+    held_ = 1.0;
 }
 
 void OutputLimiter::process (float* const* io, std::size_t channels, std::size_t frames) noexcept
@@ -78,28 +78,32 @@ void OutputLimiter::process (float* const* io, std::size_t channels, std::size_t
         float peak = 0.0f;
         for (std::size_t c = 0; c < channels; ++c)
             peak = std::max (peak, std::abs (io[c][i]));
-        const float t = peak > kCeiling ? kCeiling / peak : 1.0f;
+        const double t = peak > kCeiling ? static_cast<double> (kCeiling) / static_cast<double> (peak) : 1.0;
 
         // slot pos_ now holds the newest sample; the oldest (lookahead frames ago) sits at pos_+1.
         target_[pos_] = t;
-        float m = 1.0f;
+        double m = 1.0;
         for (std::size_t k = 0; k < ring; ++k)
             m = std::min (m, target_[k]);
 
-        held_ = std::min (m, held_ + (1.0f - held_) * releaseCoef_);
+        held_ = std::min (m, held_ + (1.0 - held_) * releaseCoef_);
+        if (m >= 1.0 && held_ > 1.0 - 1.0e-9)
+            held_ = 1.0;   // fully released: exactly transparent again
         smoothed_[pos_] = held_;
-        float sum = 0.0f;
+        double sum = 0.0;
         for (std::size_t k = 0; k < ring; ++k)
             sum += smoothed_[k];
-        float g = sum / static_cast<float> (ring);
-        if (g > 0.99999994f)
-            g = 1.0f;
+        double g = sum / static_cast<double> (ring);
+        if (g > 1.0 - 1.0e-9)
+            g = 1.0;
 
         const std::size_t oldest = (pos_ + 1) % ring;
         for (std::size_t c = 0; c < channels; ++c)
         {
             delay_[c][pos_] = io[c][i];
-            io[c][i] = delay_[c][oldest] * g;
+            const float y = static_cast<float> (static_cast<double> (delay_[c][oldest]) * g);
+            // g can only be 1 when the signal is below the ceiling; otherwise float rounding must not lift it over
+            io[c][i] = g < 1.0 ? std::clamp (y, -kCeiling, kCeiling) : y;
         }
         pos_ = oldest;
     }

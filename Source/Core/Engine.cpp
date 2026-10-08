@@ -2,6 +2,8 @@
 
 #include "Resampler.h"
 
+#include <cmath>
+
 namespace rb
 {
 void Engine::prepare (double sampleRate, std::size_t maxBlock)
@@ -65,6 +67,7 @@ void Engine::applySettings (const Settings& s) noexcept
                              || s.stopFadeMs != s_.stopFadeMs || s.liveFadeMs != s_.liveFadeMs;
     const Settings prev = s_;
     s_ = s;
+    rec_.setNextSettings (recordSettings());
     if (! clipChanged)
         return;
 
@@ -83,6 +86,19 @@ void Engine::applySettings (const Settings& s) noexcept
     }
     live_.setFadeFrames (s.exactSamples ? 0 : framesFor (s.liveFadeMs * 0.001, rate_));
     live_.setStopFadeFrames (stopFade);
+}
+
+RecordSettings Engine::recordSettings() const noexcept
+{
+    RecordSettings rs;
+    rs.captureFrames = framesFor (s_.captureSeconds, rate_, 1);
+    rs.waitFrames = framesFor (s_.waitSeconds, rate_);
+    rs.countdownFrames = framesFor (s_.countdownSeconds, rate_);
+    rs.tailGapFrames = framesFor (s_.tailGapSeconds, rate_);
+    rs.autoStart = s_.autoStart;
+    rs.repeat = s_.repeatSession && s_.loop == LoopPattern::Once;   // C12
+    rs.thresholdDb = s_.thresholdDb;
+    return rs;
 }
 
 void Engine::stopAll() noexcept
@@ -126,15 +142,19 @@ void Engine::handle (Command&& c) noexcept
                 wrongMode();
                 break;
             }
-            RecordSettings rs;
-            rs.captureFrames = framesFor (s_.captureSeconds, rate_, 1);
-            rs.waitFrames = framesFor (s_.waitSeconds, rate_);
-            rs.countdownFrames = framesFor (s_.countdownSeconds, rate_);
-            rs.tailGapFrames = framesFor (s_.tailGapSeconds, rate_);
-            rs.autoStart = s_.autoStart;
-            rs.repeat = s_.repeatSession && s_.loop == LoopPattern::Once;   // C12
-            rs.thresholdDb = s_.thresholdDb;
-            if (! rec_.start (rs, std::move (c.take), c.type == CommandType::StartHold))
+            const bool hold = c.type == CommandType::StartHold;
+            const RecordSettings rs = recordSettings();
+            // The control thread sized the buffer from its own view of the settings; never record into a
+            // buffer that cannot hold what the engine now expects (it would be silently truncated).
+            if (c.take && (std::abs (c.take->sampleRate() - rate_) > 0.5 || (! hold && c.take->capacity() < rs.captureFrames)))
+            {
+                Event e;
+                e.type = EventType::Error;
+                e.code = ErrorCode::TakeTooSmall;
+                sink_.post (std::move (e));
+                break;
+            }
+            if (! rec_.start (rs, c.take, hold))
                 busy();
             break;
         }
@@ -149,7 +169,7 @@ void Engine::handle (Command&& c) noexcept
         case CommandType::StartLive:
             if (mode_ != Mode::Live)
                 wrongMode();
-            else if (! live_.start (std::move (c.live), s_.exactSamples ? 0 : framesFor (s_.liveFadeMs * 0.001, rate_)))
+            else if (! live_.start (c.live, s_.exactSamples ? 0 : framesFor (s_.liveFadeMs * 0.001, rate_)))
                 busy();
             break;
         case CommandType::Freeze: live_.freeze(); break;
@@ -161,7 +181,7 @@ void Engine::handle (Command&& c) noexcept
             if (fileSource_)
                 sink_.retire (std::move (fileSource_));
             fileSource_ = std::move (c.source);
-            fileSel_ = { c.a, c.b };
+            fileSel_ = { c.a, fileSource_ ? std::min<Frame> (c.b, fileSource_->frameCount()) : c.b };
             file_.setSource (fileSource_.get(), fileSel_);
             fileUnderrun_ = false;
             break;
@@ -170,7 +190,7 @@ void Engine::handle (Command&& c) noexcept
             if (fileSource_)
             {
                 fileSel_ = { c.a, std::min<Frame> (c.b, fileSource_->frameCount()) };
-                file_.setSource (fileSource_.get(), fileSel_);
+                file_.changeSelection (fileSel_);   // keeps playing when possible instead of cutting the audio
                 fileUnderrun_ = false;
             }
             break;
@@ -183,21 +203,36 @@ void Engine::handle (Command&& c) noexcept
                 file_.play (c.flag);
             }
             break;
-        case CommandType::ProvideSpareTake: rec_.provideSpare (std::move (c.take)); break;
+        case CommandType::ProvideSpareTake: rec_.provideSpare (c.take); break;
         case CommandType::SetTakeSelection: rec_.setTakeSelection ({ c.a, c.b }); break;
     }
+
+    // Whatever the handler did not take ownership of (rejected, wrong mode, late) goes back to the control
+    // thread: dropping the last reference here would free megabytes on the audio thread.
+    sink_.retire (std::move (c.take));
+    sink_.retire (std::move (c.live));
+    sink_.retire (std::move (c.source));
 }
 
 void Engine::process (const float* const* in, std::size_t inCh, float* const* out, std::size_t frames) noexcept
 {
     std::size_t done = 0;
+    const std::size_t inCh0 = inCh;
+    sink_.service();
     while (done < frames)
     {
         const std::size_t n = std::min (frames - done, maxBlock_);
         const float* inPtr[kMaxChannels] = { nullptr, nullptr };
-        for (std::size_t c = 0; c < std::min (inCh, kMaxChannels); ++c)
+        std::size_t usable = 0;   // leading planes that exist
+        for (std::size_t c = 0; c < std::min (inCh0, kMaxChannels); ++c)
+        {
             inPtr[c] = in != nullptr && in[c] != nullptr ? in[c] + done : nullptr;
-        const bool haveIn = inCh > 0 && inPtr[0] != nullptr;
+            if (inPtr[c] == nullptr)
+                break;
+            usable = c + 1;
+        }
+        const bool haveIn = usable > 0;
+        inCh = usable;   // the rest of the block only ever sees planes that exist
         float* o[2] = { out[0] + done, out[1] + done };
 
         for (std::size_t i = 0; i < n; ++i)
@@ -208,7 +243,7 @@ void Engine::process (const float* const* in, std::size_t inCh, float* const* ou
 
         float pk = 0.0f;
         if (haveIn)
-            for (std::size_t c = 0; c < std::min (inCh, kMaxChannels); ++c)
+            for (std::size_t c = 0; c < inCh; ++c)
                 for (std::size_t i = 0; i < n; ++i)
                     pk = std::max (pk, std::abs (inPtr[c][i]));
         // Peak with ~150 ms decay so a 30 Hz UI poll cannot miss short peaks between audio blocks.
@@ -216,7 +251,7 @@ void Engine::process (const float* const* in, std::size_t inCh, float* const* ou
         if (pk > 1.0f)
             ++overload_;
 
-        const std::size_t effCh = haveIn ? std::min (inCh, kMaxChannels) : 0;
+        const std::size_t effCh = haveIn ? inCh : 0;
         rec_.process (haveIn ? inPtr : nullptr, effCh, o, n);
         live_.process (haveIn ? inPtr : nullptr, effCh, o, n);
 

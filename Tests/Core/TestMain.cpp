@@ -52,7 +52,7 @@ int main (int argc, char** argv)
 }
 
 #ifndef RB_NO_ALLOC_HOOK
-// Count heap allocations made while a NoAlloc guard is active on the calling thread.
+// Count heap allocations and frees made while a NoAlloc guard is active on the calling thread.
 void* operator new (std::size_t n)
 {
     if (rbt::noAllocDepth > 0)
@@ -71,8 +71,16 @@ void* operator new[] (std::size_t n)
     throw std::bad_alloc();
 }
 
-void operator delete (void* p) noexcept { std::free (p); }
-void operator delete[] (void* p) noexcept { std::free (p); }
-void operator delete (void* p, std::size_t) noexcept { std::free (p); }
-void operator delete[] (void* p, std::size_t) noexcept { std::free (p); }
+// Frees count as violations too: releasing the last reference to a buffer on the audio thread is as bad as allocating.
+static inline void rbFree (void* p) noexcept
+{
+    if (p != nullptr && rbt::noAllocDepth > 0)
+        rbt::allocViolations.fetch_add (1, std::memory_order_relaxed);
+    std::free (p);
+}
+
+void operator delete (void* p) noexcept { rbFree (p); }
+void operator delete[] (void* p) noexcept { rbFree (p); }
+void operator delete (void* p, std::size_t) noexcept { rbFree (p); }
+void operator delete[] (void* p, std::size_t) noexcept { rbFree (p); }
 #endif

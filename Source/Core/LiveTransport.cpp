@@ -38,7 +38,7 @@ void LiveTransport::invalidateTags() noexcept
         std::fill (storage_->tags.begin(), storage_->tags.end(), std::int64_t { -1 });
 }
 
-bool LiveTransport::start (std::shared_ptr<LiveStorage> storage, Frame fadeFrames) noexcept
+bool LiveTransport::start (std::shared_ptr<LiveStorage>& storage, Frame fadeFrames) noexcept
 {
     if (state_ != State::Ready || ! storage || storage->W == 0)
         return false;
@@ -50,7 +50,7 @@ bool LiveTransport::start (std::shared_ptr<LiveStorage> storage, Frame fadeFrame
     D_ = storage_->D;
     S_ = storage_->slots;
     ch_ = storage_->channels;
-    fade_ = fadeFrames;
+    fade_ = nextFade_ = fadeFrames;
     base_ = 0;
     t_ = 0;
     playingChunk_ = -1;
@@ -67,15 +67,15 @@ float LiveTransport::fillProgress() const noexcept
     return state_ == State::Ready ? 0.0f : 1.0f;
 }
 
-float LiveTransport::chunkGain (Frame u) const noexcept
+float LiveTransport::envelope (Frame u, Frame W, Frame fade) noexcept
 {
-    const Frame fe = std::min<Frame> (fade_, W_ / 2);
+    const Frame fe = std::min<Frame> (fade, W / 2);
     if (fe == 0)
         return 1.0f;
     float g = 1.0f;
     if (u < fe)
         g *= fadeShape (u, fe);
-    const Frame rem = W_ - u;   // >= 1
+    const Frame rem = W - u;   // >= 1
     if (rem <= fe)
         g *= fadeShape (rem - 1, fe);
     return g;
@@ -101,6 +101,7 @@ void LiveTransport::beginTail (bool loop, Frame slot, Frame u, Frame maxFrames) 
     tail_.slot = slot;
     tail_.u = u;
     tail_.loop = loop;
+    tail_.fade = fade_;   // the tail keeps the chunk edge fades so stopping near a chunk edge cannot click
     tail_.total = tail_.remaining = std::min (stopFade_, maxFrames);
 }
 
@@ -209,6 +210,8 @@ bool LiveTransport::renderChunk (float* const* out, std::size_t pos, std::size_t
     const Frame tt = t_ - D_;
     const std::int64_t k = static_cast<std::int64_t> (tt / W_) - 1;   // chunk being played
     const Frame u0 = tt % W_;
+    if (u0 == 0)
+        fade_ = nextFade_;   // a fade change never lands in the middle of a chunk
     const Frame slot = slotOf (k);
     if (k < 0 || storage_->tags[static_cast<std::size_t> (slot)] != k)
         return false;   // schedule broke: the slot was recycled or never filled
@@ -234,6 +237,8 @@ void LiveTransport::renderFrozen (float* const* out, std::size_t pos, std::size_
     Frame u = (t_ - adopt_) % W_;
     for (std::size_t i = 0; i < m; ++i)
     {
+        if (u == 0)
+            fade_ = nextFade_;
         const float g = chunkGain (u);
         const Frame idx = W_ - 1 - u;
         out[0][pos + i] += s0[idx] * g;
@@ -263,7 +268,8 @@ void LiveTransport::renderTail (float* const* out, std::size_t frames) noexcept
             }
             u = tail_.u = 0;
         }
-        const float ramp = static_cast<float> (tail_.remaining) / static_cast<float> (tail_.total);
+        const float ramp = static_cast<float> (tail_.remaining) / static_cast<float> (tail_.total)
+                           * envelope (u, Wt, tail_.fade);
         const Frame idx = Wt - 1 - u;
         out[0][i] += s0[idx] * ramp;
         out[1][i] += s1[idx] * ramp;
