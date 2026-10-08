@@ -117,7 +117,7 @@ void DiskClipSource::noteMiss (std::int64_t block, std::int64_t dir) const noexc
     focus_.store (block, std::memory_order_relaxed);
     if (dir != 0)
         dir_.store (static_cast<int> (dir), std::memory_order_relaxed);
-    wake_.notify_one();
+    // No notify here: this runs on the audio thread. The worker polls every few milliseconds.
 }
 
 bool DiskClipSource::read (std::int64_t first, std::size_t count, float* const* dst) const noexcept
@@ -159,7 +159,8 @@ bool DiskClipSource::read (std::int64_t first, std::size_t count, float* const* 
             for (std::size_t i = 0; i < n; ++i)
                 dst[c][done + i] = src[i].load (std::memory_order_relaxed);
         }
-        if (slot.tag.load (std::memory_order_acquire) != block)   // replaced while copying
+        std::atomic_thread_fence (std::memory_order_acquire);   // the data loads above complete before the re-check
+        if (slot.tag.load (std::memory_order_relaxed) != block)   // replaced while copying
         {
             noteMiss (block, guess);
             return false;
@@ -171,6 +172,49 @@ bool DiskClipSource::read (std::int64_t first, std::size_t count, float* const* 
     if (guess != 0)
         dir_.store (guess, std::memory_order_relaxed);
     focus_.store (std::clamp<std::int64_t> (first, 0, total - 1) / static_cast<std::int64_t> (kBlockFrames), std::memory_order_relaxed);
+    return true;
+}
+
+bool DiskClipSource::readOffline (std::int64_t first, std::size_t count, float* const* dst) const noexcept
+{
+    std::lock_guard<std::mutex> lock (directMutex_);
+    if (! direct_.is_open())
+    {
+        direct_.open (path_, std::ios::binary);
+        if (! direct_.is_open())
+            return false;
+    }
+    const std::int64_t total = static_cast<std::int64_t> (frames_);
+    std::size_t done = 0;
+    std::int64_t pos = first;
+    while (done < count)
+    {
+        if (pos < 0 || pos >= total)
+        {
+            const std::size_t n = pos < 0 ? static_cast<std::size_t> (std::min<std::int64_t> (-pos, static_cast<std::int64_t> (count - done)))
+                                          : count - done;
+            for (int c = 0; c < channels_; ++c)
+                std::fill (dst[c] + done, dst[c] + done + n, 0.0f);
+            done += n;
+            pos += static_cast<std::int64_t> (n);
+            continue;
+        }
+        const std::int64_t block = pos / static_cast<std::int64_t> (kBlockFrames);
+        const std::size_t off = static_cast<std::size_t> (pos % static_cast<std::int64_t> (kBlockFrames));
+        const std::size_t n = std::min<std::size_t> ({ count - done, kBlockFrames - off, static_cast<std::size_t> (total - pos) });
+        for (int c = 0; c < channels_; ++c)
+        {
+            const std::streamoff at = (static_cast<std::streamoff> (block) * channels_ + c) * static_cast<std::streamoff> (kBlockFrames * sizeof (float))
+                                      + static_cast<std::streamoff> (off * sizeof (float));
+            direct_.clear();
+            direct_.seekg (at);
+            direct_.read (reinterpret_cast<char*> (dst[c] + done), static_cast<std::streamsize> (n * sizeof (float)));
+            if (static_cast<std::size_t> (direct_.gcount()) != n * sizeof (float))
+                return false;
+        }
+        done += n;
+        pos += static_cast<std::int64_t> (n);
+    }
     return true;
 }
 
@@ -187,7 +231,8 @@ bool DiskClipSource::loadBlock (std::int64_t block, std::vector<float>& scratch)
         return false;
 
     Slot& slot = slots_[static_cast<std::size_t> (block) % kSlots];
-    slot.tag.store (-1, std::memory_order_release);   // invalidate before touching the data
+    slot.tag.store (-1, std::memory_order_relaxed);   // invalidate before touching the data
+    std::atomic_thread_fence (std::memory_order_release);
     for (std::size_t i = 0; i < blockFloats; ++i)
         slot.data[i].store (scratch[i], std::memory_order_relaxed);
     slot.tag.store (block, std::memory_order_release);
@@ -203,20 +248,22 @@ void DiskClipSource::worker()
         const int dir = dir_.load (std::memory_order_relaxed);
         const std::int64_t step = dir < 0 ? -1 : 1;
 
-        bool loaded = false;
+        bool loaded = false, failed = false;
         // Prefer the focus block, then the blocks ahead in the direction of travel, then a couple behind.
-        for (std::int64_t i = 0; i <= kAhead + 2 && ! loaded && ! quit_.load(); ++i)
+        for (std::int64_t i = 0; i <= kAhead + 2 && ! loaded && ! failed && ! quit_.load(); ++i)
         {
             const std::int64_t b = i <= kAhead ? focus + step * i : focus - step * (i - kAhead);
             if (b < 0 || b >= blockCount_ || blockResident (b))
                 continue;
-            loadBlock (b, scratch);
-            loaded = true;
+            if (loadBlock (b, scratch))
+                loaded = true;
+            else
+                failed = true;   // the cache file vanished or cannot be read: do not hammer it
         }
         if (! loaded)
         {
             std::unique_lock<std::mutex> lock (mutex_);
-            wake_.wait_for (lock, std::chrono::milliseconds (5));
+            wake_.wait_for (lock, std::chrono::milliseconds (failed ? 100 : 5));
         }
     }
 }

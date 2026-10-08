@@ -48,6 +48,9 @@ public:
     double sampleRate() const noexcept override { return rate_; }
     Frame frameCount() const noexcept override { return frames_; }
     bool read (std::int64_t first, std::size_t count, float* const* dst) const noexcept override;
+    // Reads straight from the cache file (own handle, independent of the playback prefetcher) so an
+    // export never depends on which blocks happen to be resident.
+    bool readOffline (std::int64_t first, std::size_t count, float* const* dst) const noexcept override;
 
     // Any thread: tell the prefetcher where playback is about to happen.
     void hint (Frame frame, bool backward) const noexcept;
@@ -78,6 +81,9 @@ private:
     int channels_ = 1;
     Frame frames_ = 0;
     std::int64_t blockCount_ = 0;
+
+    mutable std::mutex directMutex_;
+    mutable std::ifstream direct_;
 
     mutable Slot slots_[kSlots];
     mutable std::atomic<std::int64_t> focus_ { 0 };

@@ -2,6 +2,27 @@
 
 namespace rb
 {
+namespace
+{
+// Presents a source through readOffline() so that exports of disk-backed clips read what they need
+// directly instead of failing on blocks the playback prefetcher has not loaded.
+class OfflineView final : public ClipSource
+{
+public:
+    explicit OfflineView (const ClipSource& s) : s_ (s) {}
+    int channels() const noexcept override { return s_.channels(); }
+    double sampleRate() const noexcept override { return s_.sampleRate(); }
+    Frame frameCount() const noexcept override { return s_.frameCount(); }
+    bool read (std::int64_t first, std::size_t count, float* const* dst) const noexcept override
+    {
+        return s_.readOffline (first, count, dst);
+    }
+
+private:
+    const ClipSource& s_;
+};
+}  // namespace
+
 Frame renderFrameCount (const RenderSpec& spec)
 {
     if (spec.source == nullptr || spec.selection.empty())
@@ -16,10 +37,11 @@ RenderResult renderOffline (const RenderSpec& spec, const RenderBlockFn& sink, c
     if (spec.source == nullptr || spec.selection.empty())
         return RenderResult::Done;
 
+    const OfflineView view (*spec.source);
     ClipPlayer player;
     player.configure (block, 16.0);
     player.setOutputRate (spec.outRate > 0.0 ? spec.outRate : spec.source->sampleRate());
-    player.setSource (spec.source, spec.selection);
+    player.setSource (&view, spec.selection);
     player.setDirection (spec.direction);
     player.setSpeed (spec.speed);
     player.setFadeFrames (spec.fadeFrames);

@@ -4,10 +4,18 @@
 #include <filesystem>
 
 #if JUCE_WINDOWS
+ #ifndef NOMINMAX
+  #define NOMINMAX
+ #endif
+ #ifndef WIN32_LEAN_AND_MEAN
+  #define WIN32_LEAN_AND_MEAN
+ #endif
+ #include <windows.h>
  #include <process.h>
 #else
  #include <errno.h>
  #include <signal.h>
+ #include <sys/stat.h>
  #include <unistd.h>
 #endif
 
@@ -29,8 +37,15 @@ int currentProcessId()
 bool processIsAlive (int pid)
 {
 #if JUCE_WINDOWS
-    juce::ignoreUnused (pid);
-    return false;   // cleaned up by age instead (see cleanupAbandonedCaches)
+    if (pid <= 0)
+        return false;
+    HANDLE h = OpenProcess (PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD> (pid));
+    if (h == nullptr)
+        return GetLastError() == ERROR_ACCESS_DENIED;   // exists but belongs to someone else
+    DWORD code = 0;
+    const bool alive = GetExitCodeProcess (h, &code) != 0 && code == STILL_ACTIVE;
+    CloseHandle (h);
+    return alive;
 #else
     return pid > 0 && (kill (pid, 0) == 0 || errno == EPERM);
 #endif
@@ -88,8 +103,9 @@ void cleanupAbandonedCaches (const juce::File& root)
         const juce::File dir = entry.getFile();
         const juce::String name = dir.getFileName().substring (static_cast<int> (std::strlen (kCachePrefix)));
         const int pid = name.upToFirstOccurrenceOf ("-", false, false).getIntValue();
-        const bool old = dir.getLastModificationTime() < juce::Time::getCurrentTime() - juce::RelativeTime::days (2);
-        if (pid != currentProcessId() && (! processIsAlive (pid) || old))
+        // Only the owner's death makes a cache abandoned: the directory's own time never changes while the
+        // session is using it, so age says nothing about whether it is still in use.
+        if (pid != currentProcessId() && ! processIsAlive (pid))
             dir.deleteRecursively();
     }
 }
@@ -107,7 +123,15 @@ LoadOutcome loadAudioFile (const juce::File& file, const LoadOptions& options, c
 
     if (! file.hasReadAccess())
         return fail (LoadError::Unreadable, describe (LoadError::Unreadable));
-    std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
+    std::unique_ptr<juce::AudioFormatReader> reader;
+    try
+    {
+        reader.reset (formats.createReaderFor (file));   // header parsers allocate from sizes stored in the file
+    }
+    catch (const std::exception&)
+    {
+        return fail (LoadError::Corrupt, describe (LoadError::Corrupt));
+    }
     if (reader == nullptr)
         return fail (LoadError::Unsupported, describe (LoadError::Unsupported));
 
@@ -161,6 +185,9 @@ LoadOutcome loadAudioFile (const juce::File& file, const LoadOptions& options, c
                                           + juce::String::toHexString (juce::Random::getSystemRandom().nextInt64()));
             if (! cacheDir.createDirectory().wasOk())
                 return fail (LoadError::DiskFull, describe (LoadError::DiskFull));
+#if ! JUCE_WINDOWS
+            ::chmod (cacheDir.getFullPathName().toRawUTF8(), 0700);   // decoded audio is for this user only
+#endif
             cachePath = cacheDir.getChildFile ("pcm.f32");
             if (! writer.open (nativePath (cachePath), channels))
             {
@@ -204,6 +231,7 @@ LoadOutcome loadAudioFile (const juce::File& file, const LoadOptions& options, c
                     std::memcpy (ram->channel (c) + start, planes[c], n * sizeof (float));
             else if (! writer.appendBlock (planes, n))
             {
+                writer.finish();   // close the file first: an open file cannot be deleted on Windows
                 cleanupPartial();
                 return fail (LoadError::DiskFull, describe (LoadError::DiskFull));
             }
@@ -251,8 +279,15 @@ LoadOutcome loadAudioFile (const juce::File& file, const LoadOptions& options, c
     }
     catch (const std::bad_alloc&)
     {
+        writer.finish();
         cleanupPartial();
         return fail (LoadError::TooLarge, "Not enough memory to open this file.");
+    }
+    catch (const std::exception&)
+    {
+        writer.finish();
+        cleanupPartial();
+        return fail (LoadError::Corrupt, describe (LoadError::Corrupt));
     }
 }
 
@@ -275,17 +310,27 @@ struct FileService::Job : public juce::Thread
     {
         float last = -1.0f;
         auto token = alive;
-        LoadOutcome outcome = loadAudioFile (file, options, &cancelled, [&] (float p)
+        LoadOutcome outcome;
+        try
         {
-            if (p - last < 0.01f && p < 1.0f)
-                return;
-            last = p;
-            juce::MessageManager::callAsync ([token, cb = progress, p]
+            outcome = loadAudioFile (file, options, &cancelled, [&] (float p)
             {
-                if (token->load() && cb)
-                    cb (p);
+                if (p - last < 0.01f && p < 1.0f)
+                    return;
+                last = p;
+                juce::MessageManager::callAsync ([token, cb = progress, p]
+                {
+                    if (token->load() && cb)
+                        cb (p);
+                });
             });
-        });
+        }
+        catch (...)   // a decoder failure must never take the host down
+        {
+            outcome = LoadOutcome();
+            outcome.error = LoadError::Corrupt;
+            outcome.message = describe (LoadError::Corrupt);
+        }
         if (cancelled.load())
             return;   // superseded or cancelled: stay silent
         juce::MessageManager::callAsync ([token, flag = &loading, cb = done, o = std::move (outcome)]() mutable

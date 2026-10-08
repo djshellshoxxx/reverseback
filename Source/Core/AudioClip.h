@@ -21,6 +21,13 @@ public:
     // Copies `count` frames starting at `first` into dst[c][0..count). Frames outside
     // [0, frameCount) are zero filled. Returns false if data was not available (cache miss).
     virtual bool read (std::int64_t first, std::size_t count, float* const* dst) const noexcept = 0;
+
+    // Same contract for non-real-time callers (export): may block on I/O but never reports a cache miss.
+    // Sources that are always resident just forward to read().
+    virtual bool readOffline (std::int64_t first, std::size_t count, float* const* dst) const noexcept
+    {
+        return read (first, count, dst);
+    }
 };
 
 // Planar in-memory audio. Created mutable (capture), then sealed; after seal() it is never written.

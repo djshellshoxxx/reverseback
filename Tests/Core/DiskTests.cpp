@@ -1,9 +1,11 @@
 // A14 (core part): disk-backed source, prefetch and underrun handling.
 #include "DiskClipSource.h"
+#include "OfflineRender.h"
 #include "TestUtil.h"
 
 #include <chrono>
 #include <cstdio>
+#include <ctime>
 #include <filesystem>
 #include <thread>
 
@@ -143,4 +145,66 @@ RB_TEST (disk_source_concurrent_reads_while_prefetching_are_consistent)
     }
     CHECK (reads >= 400);
     CHECK_EQ (bad, 0L);
+}
+
+// ---- audit regressions ---------------------------------------------------------------------------
+namespace
+{
+std::vector<std::vector<float>> collect (const RenderSpec& spec, RenderResult& result)
+{
+    std::vector<std::vector<float>> out (2);
+    result = renderOffline (spec, [&] (const float* const* p, std::size_t ch, std::size_t n)
+    {
+        for (std::size_t c = 0; c < ch; ++c)
+            out[c].insert (out[c].end(), p[c], p[c] + n);
+        return true;
+    });
+    return out;
+}
+}  // namespace
+
+RB_TEST (audit_export_of_a_disk_backed_clip_does_not_depend_on_the_prefetcher)
+{
+    TempCache t;
+    const Frame frames = 40 * DiskCacheWriter::kBlockFrames + 777;   // far more blocks than cache slots
+    auto disk = makeDiskRamp (t, frames, 2);
+    auto ram = makeRampClip (48000.0, frames, 2);
+    for (Direction d : { Direction::Backward, Direction::Forward })
+        for (double speed : { 1.0, 1.5 })
+        {
+            RenderSpec a;
+            a.source = disk.get();
+            a.selection = { 1000, frames - 500 };
+            a.direction = d;
+            a.speed = speed;
+            RenderSpec b = a;
+            b.source = ram.get();
+            RenderResult ra = RenderResult::Aborted, rb = RenderResult::Aborted;
+            const auto fromDisk = collect (a, ra);   // nothing primed: used to fail on the first cache miss
+            const auto fromRam = collect (b, rb);
+            CHECK (ra == RenderResult::Done);
+            CHECK (rb == RenderResult::Done);
+            CHECK_EQ (fromDisk[0].size(), fromRam[0].size());
+            CHECK (fromDisk[0] == fromRam[0]);
+            CHECK (fromDisk[1] == fromRam[1]);
+        }
+}
+
+RB_TEST (audit_prefetch_thread_backs_off_when_the_cache_file_disappears)
+{
+    TempCache t;
+    auto src = makeDiskRamp (t, 8 * DiskCacheWriter::kBlockFrames, 1);
+    std::remove (t.path.c_str());            // a temp cleaner removes the cache under a running session
+    src->hint (4 * DiskCacheWriter::kBlockFrames, false);
+    std::this_thread::sleep_for (std::chrono::milliseconds (100));   // let the worker hit the failure
+    const std::clock_t c0 = std::clock();
+    const auto w0 = std::chrono::steady_clock::now();
+    std::this_thread::sleep_for (std::chrono::milliseconds (600));
+    const double cpu = static_cast<double> (std::clock() - c0) / CLOCKS_PER_SEC;
+    const double wall = std::chrono::duration<double> (std::chrono::steady_clock::now() - w0).count();
+    CHECK (cpu < 0.25 * wall);               // it used to burn a whole core (~1.0)
+    float buf[16];
+    float* dst[1] = { buf };
+    CHECK (! src->read (4 * static_cast<std::int64_t> (DiskCacheWriter::kBlockFrames), 16, dst));   // reports a miss, no crash
+    CHECK (! src->readOffline (0, 16, dst));
 }

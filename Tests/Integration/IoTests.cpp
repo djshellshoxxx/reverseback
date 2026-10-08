@@ -170,6 +170,8 @@ RB_TEST (startup_cleanup_removes_only_abandoned_caches)
     dead.createDirectory();
     alive.createDirectory();
     other.createDirectory();
+    // a live owner's cache keeps its creation time for the whole session: age alone must never delete it
+    alive.setLastModificationTime (juce::Time::getCurrentTime() - juce::RelativeTime::days (30));
     rb::cleanupAbandonedCaches (t.dir);
     CHECK (! dead.exists());
     CHECK (alive.exists());
@@ -342,4 +344,34 @@ RB_TEST (A17_settings_roundtrip_corruption_and_future_versions)
     CHECK_NEAR (fut.userPresets[0].values.captureSeconds, 60.0, 1e-9);   // values are clamped into range
     CHECK_NEAR (fut.userPresets[0].values.speed, 2.0, 1e-9);
     CHECK_NEAR (fut.userPresets[0].values.liveChunkSeconds, 0.1, 1e-9);
+}
+
+RB_TEST (audit_export_of_a_disk_backed_file_succeeds_in_both_directions)
+{
+    TempDir t;
+    juce::WavAudioFormat wav;
+    const juce::int64 frames = 48000ll * 12;
+    CHECK (writeFixture (t.file ("big.wav"), wav, 48000.0, 2, 24, frames));
+    rb::LoadOptions o;
+    o.ramLimitBytes = 1024 * 1024;   // force the disk cache
+    o.cacheRoot = t.dir;
+    auto out = load (t.file ("big.wav"), o);
+    CHECK (out.ok() && out.asset->disk != nullptr);
+    if (! out.ok())
+        return;
+    for (auto dir : { rb::Direction::Backward, rb::Direction::Forward })
+    {
+        auto req = makeRequest (out.asset->source, { 0, out.asset->frames }, t.file ("export.wav"));
+        req.direction = dir;
+        const auto res = rb::writeExport (req, nullptr);   // nothing was primed: used to fail with "could not be read fast enough"
+        CHECK (res.ok());
+        const auto back = readFile (t.file ("export.wav"));
+        CHECK (back.ok && back.data[0].size() == static_cast<std::size_t> (frames));
+        for (std::size_t i = 0; i < back.data[0].size(); i += 9973)
+        {
+            const juce::int64 srcIndex = dir == rb::Direction::Backward ? frames - 1 - static_cast<juce::int64> (i) : static_cast<juce::int64> (i);
+            CHECK_NEAR (back.data[0][i], testSample (0, srcIndex), 2.0e-6);
+        }
+        t.file ("export.wav").deleteFile();
+    }
 }
