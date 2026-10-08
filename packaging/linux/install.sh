@@ -20,7 +20,9 @@ install -m 0755 "$HERE/ReverseBack" "$BIN/reverseback"
 rm -rf "$VST3/ReverseBack.vst3"
 cp -r "$HERE/ReverseBack.vst3" "$VST3/"
 install -m 0755 "$HERE/ReverseBack.clap" "$CLAP/ReverseBack.clap"
-install -m 0644 "$HERE/reverseback.desktop" "$APPS/reverseback.desktop"
+# absolute Exec path: ~/.local/bin is not on every desktop session's PATH
+sed "s|^Exec=reverseback |Exec=\"$BIN/reverseback\" |" "$HERE/reverseback.desktop" > "$APPS/reverseback.desktop"
+chmod 0644 "$APPS/reverseback.desktop"
 install -m 0644 "$HERE/reverseback.png" "$ICONS/reverseback.png"
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPS" >/dev/null 2>&1 || true
 command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -q -t "$(dirname "$(dirname "$ICONS")")" >/dev/null 2>&1 || true

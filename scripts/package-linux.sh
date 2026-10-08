@@ -53,7 +53,7 @@ tar -C "$STAGE" -czf "$OUT/$NAME.tar.gz" "$NAME"
   tar -C standalone -czf "$OUT/ReverseBack-$VERSION-standalone-linux-$ARCH.tar.gz" . )
 
 # 3. Debian package
-DEBVER="${VERSION/-/~}"
+DEBVER="$(printf '%s' "$VERSION" | sed 's/-/~/')"   # 0.1.0-beta.1 -> 0.1.0~beta.1 (sorts before 0.1.0)
 P="$STAGE/deb"
 mkdir -p "$P/DEBIAN" "$P/usr/bin" "$P/usr/lib/vst3" "$P/usr/lib/clap" "$P/usr/share/applications" \
          "$P/usr/share/icons/hicolor/256x256/apps" "$P/usr/share/doc/reverseback"
