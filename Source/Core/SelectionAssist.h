@@ -27,8 +27,9 @@ inline Selection snapToZero (const AudioClip& clip, Selection s, Frame radius) n
         double e = 0.0;
         for (int c = 0; c < clip.channels(); ++c)
         {
-            const double a = clip.channel(c)[i == 0 ? 0 : i - 1];
-            const double b = clip.channel(c)[i];
+            const Frame safe = std::min (i, clip.frameCount() - 1);
+            const double a = clip.channel(c)[safe == 0 ? 0 : safe - 1];
+            const double b = clip.channel(c)[safe];
             e += std::abs (a) + std::abs (b);
             if ((a < 0 && b >= 0) || (a > 0 && b <= 0)) e *= 0.25;
         }
