@@ -64,7 +64,8 @@ if(RB_BUILD_TESTS)
     Tests/Core/EngineTests.cpp
     Tests/Core/StressTests.cpp
     Tests/Core/DiskTests.cpp
-    Tests/Core/AuditTests.cpp)
+    Tests/Core/AuditTests.cpp
+    Tests/Core/SelectionAssistTests.cpp)
   target_link_libraries(rb_core_tests PRIVATE rb_core)
   find_package(Threads REQUIRED)
   target_link_libraries(rb_core PUBLIC Threads::Threads)
