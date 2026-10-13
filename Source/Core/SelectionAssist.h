@@ -22,27 +22,33 @@ inline Selection snapToZero (const AudioClip& clip, Selection s, Frame radius) n
 {
     const Frame total = clip.frameCount();
     if (s.empty() || s.end > total || total < 2) return s;
-    auto energy = [&clip] (Frame i)
-    {
-        double e = 0.0;
-        for (int c = 0; c < clip.channels(); ++c)
-        {
-            const Frame safe = std::min (i, clip.frameCount() - 1);
-            const double a = clip.channel(c)[safe == 0 ? 0 : safe - 1];
-            const double b = clip.channel(c)[safe];
-            e += std::abs (a) + std::abs (b);
-            if ((a < 0 && b >= 0) || (a > 0 && b <= 0)) e *= 0.25;
-        }
-        return e;
-    };
-    auto nearest = [&] (Frame edge, Frame lo, Frame hi)
+    auto nearest = [&clip] (Frame edge, Frame lo, Frame hi)
     {
         Frame best = edge;
-        double value = std::numeric_limits<double>::infinity();
+        double bestEnergy = std::numeric_limits<double>::infinity();
+        bool foundCrossing = false;
         for (Frame i = lo; i <= hi; ++i)
         {
-            const double v = energy (i);
-            if (v < value) { value = v; best = i; }
+            // Index i denotes the boundary between samples i-1 and i.
+            // Prefer a real zero/sign crossing on all available channels, then
+            // minimize discontinuity energy. If none exists, use the quietest edge.
+            double energy = 0.0;
+            bool crosses = true;
+            for (int c = 0; c < clip.channels(); ++c)
+            {
+                const float* plane = clip.channel (c);
+                const Frame right = std::min (i, clip.frameCount() - 1);
+                const double a = plane[right == 0 ? 0 : right - 1];
+                const double b = plane[right];
+                energy += std::abs (a) + std::abs (b);
+                crosses = crosses && (a == 0.0 || b == 0.0 || (a < 0.0 && b > 0.0) || (a > 0.0 && b < 0.0));
+            }
+            if ((crosses && ! foundCrossing) || (crosses == foundCrossing && energy < bestEnergy))
+            {
+                best = i;
+                bestEnergy = energy;
+                foundCrossing = crosses;
+            }
         }
         return best;
     };
