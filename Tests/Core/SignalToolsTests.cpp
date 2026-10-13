@@ -273,3 +273,29 @@ RB_TEST (offline_render_matches_player_and_supports_cancel)
     auto c = renderOffline (spec, [] (const float* const*, std::size_t, std::size_t) { return true; }, &cancel);
     CHECK (c == RenderResult::Cancelled);
 }
+
+
+RB_TEST (A19_trim_uses_offline_reads_when_realtime_cache_misses)
+{
+    // Disk-backed sources may miss in the real-time path, but offline reads can load data.
+    struct OfflineOnlySource final : ClipSource
+    {
+        int channels() const noexcept override { return 1; }
+        double sampleRate() const noexcept override { return 1000.0; }
+        Frame frameCount() const noexcept override { return 100; }
+        bool read (std::int64_t, std::size_t, float* const*) const noexcept override
+        {
+            return false;
+        }
+        bool readOffline (std::int64_t first, std::size_t count, float* const* dst) const noexcept override
+        {
+            for (std::size_t i = 0; i < count; ++i)
+                dst[0][i] = first + static_cast<std::int64_t> (i) >= 40
+                            && first + static_cast<std::int64_t> (i) < 60 ? 0.5f : 0.0f;
+            return true;
+        }
+    } source;
+    const auto sel = findNonSilentSelection (source, -40.0, 0.02, 0.0);
+    CHECK_EQ (sel.begin, Frame { 40 });
+    CHECK_EQ (sel.end, Frame { 60 });
+}
