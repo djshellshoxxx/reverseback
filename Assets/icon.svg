@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1b2535"/><stop offset="1" stop-color="#0e131c"/></linearGradient>
+    <linearGradient id="wave" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#48d5af"/><stop offset="1" stop-color="#a699ff"/></linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#bg)"/>
+  <g fill="url(#wave)">
+    <rect x="34" y="88" width="14" height="40" rx="7"/>
+    <rect x="58" y="73" width="14" height="70" rx="7"/>
+    <rect x="82" y="56" width="14" height="104" rx="7"/>
+    <rect x="106" y="38" width="14" height="140" rx="7"/>
+    <rect x="130" y="62" width="14" height="92" rx="7"/>
+    <rect x="154" y="78" width="14" height="60" rx="7"/>
+    <rect x="178" y="90" width="14" height="36" rx="7"/>
+    <rect x="202" y="97" width="14" height="22" rx="7"/>
+  </g>
+  <path d="M44 214 L84 194 L84 234 Z" fill="#ecf2fa"/>
+  <rect x="94" y="206" width="124" height="16" rx="8" fill="#ecf2fa" opacity="0.9"/>
+</svg>

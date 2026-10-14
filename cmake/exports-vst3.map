@@ -1,0 +1,9 @@
+/* Only the VST3 module entry points are exported (see exports-clap.map for the reason). */
+{
+  global:
+    GetPluginFactory;
+    ModuleEntry;
+    ModuleExit;
+  local:
+    *;
+};
