@@ -19,4 +19,8 @@ Forward/backward comparison, hold-to-record, replay, loops, ping-pong, tape-spee
 - [Product, engine and GUI specification](spec/REVERSEBACK_V1.md)
 - [Main-screen GUI mockup](docs/GUI_MOCKUP.svg)
 
-Initial target: Windows standalone, with a reusable engine for a later VST3 effect and other desktop platforms. License and pinned framework dependencies must be selected before implementation/distribution.
+Initial target: Windows standalone, with a reusable engine for a later VST3 effect and other desktop platforms. Framework dependencies must be pinned before implementation. The repository is licensed under MIT (see [LICENSE](LICENSE)).
+
+## Wiki
+
+Wiki source pages are in [docs/wiki/](docs/wiki/Home.md): user guide (planned behaviour), and design notes from the specification.
