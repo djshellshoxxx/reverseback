@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: Core engine (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: release,  sanitize: "",                 type: Release }
+          - { name: asan-ubsan, sanitize: "address;undefined", type: RelWithDebInfo }
+          - { name: tsan,     sanitize: "thread",           type: RelWithDebInfo }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=${{ matrix.type }}
+          -DRB_CORE_ONLY=ON
+          "-DRB_SANITIZE=${{ matrix.sanitize }}"
+      - name: Build
+        run: cmake --build build -j
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  linux:
+    name: Linux (Standalone, VST3, CLAP)
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '0.1.0-beta.1' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config \
+            libasound2-dev libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxcomposite-dev \
+            libfreetype-dev libfontconfig1-dev libgl1-mesa-dev libcurl4-openssl-dev libjack-jackd2-dev \
+            xvfb zip dpkg-dev desktop-file-utils
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: >
+          cmake --build build -j
+          --target ReverseBack_Standalone ReverseBack_VST3 ReverseBack_CLAP rb_core_tests rb_integration_tests
+      - name: Test (core + integration under Xvfb)
+        run: ctest --test-dir build --output-on-failure
+      - name: Validate (ldd, symbols, selftest, CLAP probe, desktop entry)
+        run: scripts/validate-linux.sh build
+      - name: Package
+        run: scripts/package-linux.sh build "${VERSION#v}" dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64
+          path: dist/*
+          if-no-files-found: error
+
+  gui-asan:
+    name: GUI and plugin tests under ASan + UBSan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config \
+            libasound2-dev libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxcomposite-dev \
+            libfreetype-dev libfontconfig1-dev libgl1-mesa-dev libcurl4-openssl-dev libjack-jackd2-dev xvfb
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          "-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize=vptr"
+      - name: Build
+        run: cmake --build build -j --target rb_integration_tests
+      - name: Test
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: xvfb-run -a build/rb_integration_tests
+
+  windows:
+    name: Windows (Standalone, VST3, CLAP)
+    runs-on: windows-2022   # MSVC 2022 as in spec/BUILD_RELEASE.md; windows-latest moves to newer Visual Studio generators
+    env:
+      VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '0.1.0-beta.1' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -A x64   # the generator is whichever Visual Studio the runner has
+      - name: Build
+        run: >
+          cmake --build build --config Release --parallel
+          --target ReverseBack_Standalone ReverseBack_VST3 ReverseBack_CLAP rb_core_tests rb_integration_tests
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Package
+        shell: pwsh
+        run: |
+          $v = $env:VERSION -replace '^v',''
+          $art = "build/ReverseBack_artefacts/Release"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          foreach ($k in 'Standalone','VST3','CLAP') {
+            $stage = "stage/$k"
+            New-Item -ItemType Directory -Force $stage | Out-Null
+            Copy-Item -Recurse "$art/$k/*" $stage
+            Copy-Item LICENSE,THIRD_PARTY_LICENSES.md,COPYRIGHT-TRADEMARK.md $stage
+            Copy-Item -Recurse LICENSES $stage
+            Compress-Archive -Path "$stage/*" -DestinationPath "dist/ReverseBack-$v-windows-x86_64-$($k.ToLower()).zip"
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [core, linux, gui-asan, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=""
+          case "${GITHUB_REF_NAME}" in *-beta*|*-alpha*|*-rc*) flags="--prerelease" ;; esac
+          gh release create "${GITHUB_REF_NAME}" dist/* --repo "${GITHUB_REPOSITORY}" \
+            --title "ReverseBack ${GITHUB_REF_NAME}" --generate-notes $flags

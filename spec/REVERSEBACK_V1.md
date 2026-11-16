@@ -2,6 +2,16 @@
 
 Specification date: 2026-09-30. Status: proposed implementation contract. This document defines the requested tool; it does not claim the tool exists.
 
+## Amendments (2026-10-08)
+
+The following supersede the text below where they conflict. Details live in the companion documents.
+
+- **Platforms and formats (§1):** the first beta targets **Linux x86_64 and Windows** as **Standalone, VST3 and CLAP**, not Windows standalone only. The plugin wrapper requirements demanded by §8 are specified in [`PLUGIN_FORMATS.md`](PLUGIN_FORMATS.md).
+- **Engine details (§2, §5):** exact algorithms, rounding, state tables, ownership rules and the clarifications C1-C13 are in [`ENGINE_DESIGN.md`](ENGINE_DESIGN.md).
+- **GUI (§4):** the visual system, per-mode layouts, component states and text are in [`GUI_DESIGN.md`](GUI_DESIGN.md).
+- **Framework and licence (§5.1):** JUCE 8.0.15 under its AGPLv3 option; see [`BUILD_RELEASE.md`](BUILD_RELEASE.md) for the licensing consequence for binaries.
+- **Acceptance (§7):** A01-A20 stand; plugin tests P01-P12 are added in `PLUGIN_FORMATS.md` §9.
+
 ## 1. Purpose and scope
 
 ReverseBack is a local audio toy for hearing speech, music and other sounds backwards. A person should be able to open it, choose their microphone, press one button, speak, and hear the result without knowing audio engineering. It also serves musicians making reverse samples.

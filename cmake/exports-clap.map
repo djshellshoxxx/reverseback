@@ -1,0 +1,8 @@
+/* Only the CLAP entry point leaves the shared object; everything else (JUCE, libstdc++ templates, rb::*)
+   stays private so two plugins built with different library versions cannot interpose on each other. */
+{
+  global:
+    clap_entry;
+  local:
+    *;
+};
