@@ -1,4 +1,5 @@
 #include "ReverseBackEditor.h"
+#include "SelectionAssist.h"
 
 #include <BinaryData.h>
 
@@ -1514,6 +1515,12 @@ void ReverseBackEditor::showMainMenu()
     item (6, "Stop / cancel", "Esc", busy);
     item (7, "Hold to Record: hold the button or key", juce::String::charToString (static_cast<juce::juce_wchar> (holdKeyCode_)).toUpperCase(), false);
     m.addSeparator();
+    const auto file = proc_.fileAsset();
+    const bool canAssist = mode == Mode::File && ! busy && file && file->ram;
+    item (20, "Snap selection to zero crossings", {}, canAssist);
+    item (21, "Select loudest 250 ms nearby", {}, canAssist);
+    item (22, "Add 100 ms of context", {}, canAssist);
+    m.addSeparator();
     item (8, "Settings...", {});
     item (9, "Keyboard shortcuts", {}, true, shortcutsEnabled_);
     item (10, "Advanced panel", {}, true, advancedOpen_);
@@ -1532,6 +1539,23 @@ void ReverseBackEditor::showMainMenu()
                              case 4: e.proc_.actionReplay(); break;
                              case 5: e.toggleDirection(); break;
                              case 6: e.proc_.actionStop(); break;
+                             case 20:
+                             case 21:
+                             case 22:
+                             {
+                                 auto asset = e.proc_.fileAsset();
+                                 if (! asset || ! asset->ram || e.proc_.mode() != Mode::File || e.proc_.isBusy()) break;
+                                 const auto& clip = *asset->ram;
+                                 const auto sel = e.proc_.fileSelection();
+                                 const auto rate = clip.sampleRate();
+                                 Selection next = sel;
+                                 if (r == 20) next = selectionAssist::snapToZero (clip, sel, framesFor (0.010, rate));
+                                 else if (r == 21) next = selectionAssist::loudestWindow (clip, sel, framesFor (0.250, rate, 1), framesFor (10.0, rate, 1));
+                                 else next = selectionAssist::pad (sel, clip.frameCount(), framesFor (0.100, rate, 1));
+                                 if (! e.proc_.setFileSelection (next))
+                                     e.proc_.showBanner (BannerKind::Info, "Selection needs at least 50 ms.", false, false, 3.0);
+                                 break;
+                             }
                              case 8: e.openSettings(); break;
                              case 9:
                                  e.proc_.storedSettings().ui.shortcutsEnabled = ! e.shortcutsEnabled_;
